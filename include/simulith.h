@@ -22,8 +22,15 @@
 #include "simulith_uart.h"
 
 // Defines
-#define PUB_ADDR     "ipc:///tmp/simulith_pub.ipc"
-#define REP_ADDR     "ipc:///tmp/simulith_rep.ipc"
+#define SERVER_PUB_ADDR "tcp://0.0.0.0:5000"
+#define SERVER_REP_ADDR "tcp://0.0.0.0:5001"
+
+#define CLIENT_PUB_ADDR "tcp://tryspace-sim:5000"
+#define CLIENT_REP_ADDR "tcp://tryspace-sim:5001"
+
+#define LOCAL_PUB_ADDR  "ipc:///tmp/simulith_pub"
+#define LOCAL_REP_ADDR  "ipc:///tmp/simulith_rep"
+
 #define INTERVAL_NS 10 * 1000000 // 10 ms
 
 #ifdef __cplusplus

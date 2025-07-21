@@ -1,13 +1,10 @@
-# TrySpace Sim Dockerfile w/ Pre-built Files
-# https://github.com/TrySpaceOrg/tryspace-sim
-#
-
 FROM tryspace-lab:latest
-LABEL maintainer="TrySpaceOrg" \
-      description="Runtime image for TrySpace Simulators and Simulith"
 
 # Copy built FSW files into the image
-COPY build /opt/sim
+COPY build /app
 
 # Set working directory
-WORKDIR /opt/sim
+WORKDIR /app
+
+# Set command to run
+CMD ["/app/simulith_server_standalone"]

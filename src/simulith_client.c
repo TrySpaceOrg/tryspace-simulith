@@ -52,7 +52,7 @@ int simulith_client_init(const char *pub_addr, const char *rep_addr, const char 
         perror("Requester socket setup failed");
         return -1;
     }
-
+    
     simulith_log("Simulith client [%s] initialized with update rate %lu ns\n", client_id, update_rate_ns);
     return 0;
 }

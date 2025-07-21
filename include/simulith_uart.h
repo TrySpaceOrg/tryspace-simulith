@@ -19,6 +19,8 @@
 
 #define SIMULITH_UART_INITIALIZED 255
 
+#define SIMULITH_UART_BASE_PORT 6000
+
 #ifdef __cplusplus
 extern "C"
 {

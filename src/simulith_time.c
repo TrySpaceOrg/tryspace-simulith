@@ -12,26 +12,30 @@ typedef struct {
     double tick_interval;// Time between ticks in seconds
 } simulith_time_provider_t;
 
-void* simulith_time_init(void) {
+void* simulith_time_init(void) 
+{
     simulith_time_provider_t* provider = malloc(sizeof(simulith_time_provider_t));
     if (!provider) return NULL;
     
     // Initialize ZMQ context and socket
     provider->context = zmq_ctx_new();
-    if (!provider->context) {
+    if (!provider->context) 
+    {
         free(provider);
         return NULL;
     }
     
     provider->sub_socket = zmq_socket(provider->context, ZMQ_SUB);
-    if (!provider->sub_socket) {
+    if (!provider->sub_socket) 
+    {
         zmq_ctx_destroy(provider->context);
         free(provider);
         return NULL;
     }
     
     // Connect to the Simulith PUB socket
-    if (zmq_connect(provider->sub_socket, PUB_ADDR) != 0) {
+    if (zmq_connect(provider->sub_socket, CLIENT_PUB_ADDR) != 0) 
+    {
         zmq_close(provider->sub_socket);
         zmq_ctx_destroy(provider->context);
         free(provider);
@@ -47,14 +51,16 @@ void* simulith_time_init(void) {
     return provider;
 }
 
-double simulith_time_get(void* handle) {
+double simulith_time_get(void* handle) 
+{
     if (!handle) return 0.0;
     
     simulith_time_provider_t* provider = (simulith_time_provider_t*)handle;
     return provider->tick_count * provider->tick_interval;
 }
 
-int simulith_time_wait_for_next_tick(void* handle) {
+int simulith_time_wait_for_next_tick(void* handle) 
+{
     if (!handle) return -1;
     
     simulith_time_provider_t* provider = (simulith_time_provider_t*)handle;
@@ -68,16 +74,19 @@ int simulith_time_wait_for_next_tick(void* handle) {
     return 0;
 }
 
-void simulith_time_cleanup(void* handle) {
+void simulith_time_cleanup(void* handle) 
+{
     if (!handle) return;
     
     simulith_time_provider_t* provider = (simulith_time_provider_t*)handle;
     
-    if (provider->sub_socket) {
+    if (provider->sub_socket) 
+    {
         zmq_close(provider->sub_socket);
     }
     
-    if (provider->context) {
+    if (provider->context) 
+    {
         zmq_ctx_destroy(provider->context);
     }
     
