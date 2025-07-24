@@ -13,7 +13,7 @@ build:
 
 build-sim:
 	mkdir -p $(BUILDDIR)
-	cd $(BUILDDIR) && cmake ..
+	cd $(BUILDDIR) && cmake -DBUILD_SIMULITH_TESTS=ON ..
 	$(MAKE) --no-print-directory -C $(BUILDDIR)
 
 clean:

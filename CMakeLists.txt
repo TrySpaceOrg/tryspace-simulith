@@ -50,6 +50,9 @@ add_executable(simulith_server_standalone
                 src/simulith_server_standalone.c)
 target_link_libraries(simulith_server_standalone ${ZeroMQ_LIBRARIES})
 
-# Add tests subdirectory
-enable_testing()
-add_subdirectory(test)
+# Optionally add tests subdirectory
+option(BUILD_SIMULITH_TESTS "Build Simulith tests" OFF)
+if(BUILD_SIMULITH_TESTS)
+    enable_testing()
+    add_subdirectory(test)
+endif()

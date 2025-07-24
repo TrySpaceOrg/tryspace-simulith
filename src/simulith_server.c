@@ -79,17 +79,33 @@ int simulith_server_init(const char *pub_bind, const char *rep_bind, int client_
     return 0;
 }
 
+// Global for speed tracking
+static double g_attempted_speed = 1.0;
+static uint64_t g_last_log_real_ns = 0;
+
 static void broadcast_time(void)
 {
     static uint64_t last_log_time = 0;
     static const uint64_t LOG_INTERVAL_NS = 10000000000; // Log every 10 seconds
-    
+
     zmq_send(publisher, &current_time_ns, sizeof(current_time_ns), 0);
-    
+
     // Only log time broadcasts every LOG_INTERVAL_NS
-    if (current_time_ns - last_log_time >= LOG_INTERVAL_NS) {
-        simulith_log("Simulation time: %.3f seconds\n", current_time_ns / 1e9);
+    if (current_time_ns - last_log_time >= LOG_INTERVAL_NS) 
+    {
+        // Calculate actual speed (sim seconds per real second)
+        struct timespec now_ts;
+        clock_gettime(CLOCK_MONOTONIC, &now_ts);
+        uint64_t now_real_ns = (uint64_t)now_ts.tv_sec * 1000000000ULL + now_ts.tv_nsec;
+        double sim_elapsed = (current_time_ns - last_log_time) / 1e9;
+        double real_elapsed = (g_last_log_real_ns > 0) ? ((now_real_ns - g_last_log_real_ns) / 1e9) : 0.0;
+        double actual_speed = (real_elapsed > 0.0) ? (sim_elapsed / real_elapsed) : 0.0;
+
+        simulith_log("  Simulation time: %.3f seconds | Attempted speed: %.2fx | Actual: %.2fx\n",
+            current_time_ns / 1e9, g_attempted_speed, actual_speed);
+
         last_log_time = current_time_ns;
+        g_last_log_real_ns = now_real_ns;
     }
 }
 
@@ -199,24 +215,128 @@ void simulith_server_run(void)
     // Reset client responded flags for tick ACKs
     reset_responses();
 
-    while (1)
-    {
-        broadcast_time();
-        reset_responses();
+    // CLI state
+    int paused = 0;
+    int running = 1;
+    double speed = 1.0; // 1.0 = real time
+    g_attempted_speed = speed;
+    fd_set readfds;
+    struct timeval tv;
+    char cli_buf[32];
 
-        while (!all_clients_responded())
+    printf("Simulith CLI started. Type 'p' (pause/play), '+' (faster), or '-' (slower).\n");
+
+    while (running)
+    {
+        // Check for CLI input (non-blocking)
+        FD_ZERO(&readfds);
+        FD_SET(0, &readfds); // stdin
+        tv.tv_sec = 0;
+        tv.tv_usec = 0;
+        int cli_ready = select(1, &readfds, NULL, NULL, &tv);
+        if (cli_ready > 0 && FD_ISSET(0, &readfds)) 
         {
-            char buffer[64] = {0};
-            int  size       = zmq_recv(responder, buffer, sizeof(buffer) - 1, 0);
-            if (size > 0)
+            if (fgets(cli_buf, sizeof(cli_buf), stdin)) 
             {
-                buffer[size] = '\0';
-                handle_ack(buffer);
-                zmq_send(responder, "ACK", 3, 0);
+                if (strncmp(cli_buf, "p", 1) == 0) 
+                {
+                    paused = !paused;
+                    printf(paused ? "Simulation paused.\n" : "Simulation resumed.\n");
+                } else if (strncmp(cli_buf, "+", 1) == 0) 
+                {
+                    speed *= 2.0;
+                    if (speed > 64.0) speed = 64.0;
+                    g_attempted_speed = speed;
+                    printf("Attempted simulation speed: %.2fx\n", speed);
+                } else if (strncmp(cli_buf, "-", 1) == 0) 
+                {
+                    speed /= 2.0;
+                    if (speed < 0.015625) speed = 0.015625;
+                    g_attempted_speed = speed;
+                    printf("Attempted simulation speed: %.4fx\n", speed);
+                } else if (strncmp(cli_buf, "quit", 4) == 0) 
+                {
+                    running = 0;
+                    printf("Exiting simulation.\n");
+                    break;
+                } else 
+                {
+                    printf("Unknown command. Use 'p', '+', or '-'.\n");
+                }
             }
         }
 
-        current_time_ns += tick_interval_ns;
+        if (!paused) 
+        {
+            struct timespec start_ts, end_ts;
+            clock_gettime(CLOCK_MONOTONIC, &start_ts);
+
+            broadcast_time();
+            reset_responses();
+
+            while (!all_clients_responded() && running) 
+            {
+                char buffer[64] = {0};
+                int  size       = zmq_recv(responder, buffer, sizeof(buffer) - 1, 0);
+                if (size > 0) 
+                {
+                    buffer[size] = '\0';
+                    handle_ack(buffer);
+                    zmq_send(responder, "ACK", 3, 0);
+                }
+                // Check for CLI input during wait
+                FD_ZERO(&readfds);
+                FD_SET(0, &readfds);
+                tv.tv_sec = 0;
+                tv.tv_usec = 0;
+                cli_ready = select(1, &readfds, NULL, NULL, &tv);
+                if (cli_ready > 0 && FD_ISSET(0, &readfds)) 
+                {
+                    if (fgets(cli_buf, sizeof(cli_buf), stdin)) 
+                    {
+                        if (strncmp(cli_buf, "p", 1) == 0) 
+                        {
+                            paused = !paused;
+                            printf(paused ? "Simulation paused.\n" : "Simulation resumed.\n");
+                        } else if (strncmp(cli_buf, "+", 1) == 0) 
+                        {
+                            speed *= 2.0;
+                            if (speed > 256.0) speed = 256.0;
+                            printf("Attempted simulation speed: %.2fx\n", speed);
+                        } else if (strncmp(cli_buf, "-", 1) == 0) 
+                        {
+                            speed /= 2.0;
+                            if (speed < 0.015625) speed = 0.015625;
+                            printf("Attempted simulation speed: %.4fx\n", speed);
+                        } else 
+                        {
+                            printf("Unknown command. Use 'p', '+', or '-'.\n");
+                        }
+                    }
+                }
+            }
+
+            // Sleep to simulate real time (adjusted by speed), accounting for processing time
+            if (speed > 0.0) 
+            {
+                clock_gettime(CLOCK_MONOTONIC, &end_ts);
+                uint64_t elapsed_ns = (end_ts.tv_sec - start_ts.tv_sec) * 1000000000ULL + (end_ts.tv_nsec - start_ts.tv_nsec);
+                uint64_t target_ns = (uint64_t)((double)tick_interval_ns / speed);
+                if (elapsed_ns < target_ns) 
+                {
+                    uint64_t sleep_ns = target_ns - elapsed_ns;
+                    struct timespec ts;
+                    ts.tv_sec = sleep_ns / 1000000000ULL;
+                    ts.tv_nsec = sleep_ns % 1000000000ULL;
+                    nanosleep(&ts, NULL);
+                }
+            }
+            current_time_ns += tick_interval_ns;
+        } else 
+        {
+            // If paused, sleep briefly to avoid busy loop
+            usleep(100000);
+        }
     }
 }
 
