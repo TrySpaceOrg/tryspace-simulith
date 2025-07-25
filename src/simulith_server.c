@@ -245,7 +245,7 @@ void simulith_server_run(void)
                 } else if (strncmp(cli_buf, "+", 1) == 0) 
                 {
                     speed *= 2.0;
-                    if (speed > 64.0) speed = 64.0;
+                    if (speed > 256.0) speed = 256.0;
                     g_attempted_speed = speed;
                     printf("Attempted simulation speed: %.2fx\n", speed);
                 } else if (strncmp(cli_buf, "-", 1) == 0) 
