@@ -9,7 +9,7 @@ export RUNTIME_NAME ?= tryspace-sim
 all: build
 
 build:
-	docker run --rm -it -v $(CURDIR):$(CURDIR) --name $(RUNTIME_NAME) -w $(CURDIR) $(BUILD_IMAGE_NAME) make -j build-sim
+	docker run --rm -it -v $(CURDIR):$(CURDIR) --user $(shell id -u):$(shell id -g) --name $(RUNTIME_NAME) -w $(CURDIR) $(BUILD_IMAGE_NAME) make -j build-sim
 
 build-sim:
 	mkdir -p $(BUILDDIR)
@@ -20,7 +20,7 @@ clean:
 	rm -rf $(BUILDDIR)
 
 debug:
-	docker run --rm -it -v $(CURDIR):$(CURDIR) --name $(RUNTIME_NAME) -w $(CURDIR) $(BUILD_IMAGE_NAME) /bin/bash
+	docker run --rm -it -v $(CURDIR):$(CURDIR) --user $(shell id -u):$(shell id -g) --name $(RUNTIME_NAME) -w $(CURDIR) $(BUILD_IMAGE_NAME) /bin/bash
 
 runtime:
 	$(MAKE) clean build
@@ -33,4 +33,4 @@ stop:
 	docker ps --filter name=tryspace-* | xargs docker stop
 
 test:
-	docker run --rm -it -v $(CURDIR):$(CURDIR) --name $(RUNTIME_NAME) -w $(BUILDDIR) $(BUILD_IMAGE_NAME) make test
+	docker run --rm -it -v $(CURDIR):$(CURDIR) --name $(RUNTIME_NAME) --user $(shell id -u):$(shell id -g) -w $(BUILDDIR) $(BUILD_IMAGE_NAME) make test
