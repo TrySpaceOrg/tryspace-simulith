@@ -99,6 +99,14 @@ extern "C"
     void simulith_client_run_loop(simulith_tick_callback on_tick);
 
     /**
+     * Wait for next tick and send acknowledgment (non-blocking API for OSAL use).
+     *
+     * @param tick_time_ns Pointer to store the tick time in nanoseconds.
+     * @return 0 on success, -1 on error.
+     */
+    int simulith_client_wait_for_tick(uint64_t* tick_time_ns);
+
+    /**
      * Shut down the client and release resources.
      */
     void simulith_client_shutdown(void);

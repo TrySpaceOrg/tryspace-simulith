@@ -136,6 +136,36 @@ void simulith_client_run_loop(simulith_tick_callback on_tick)
     }
 }
 
+int simulith_client_wait_for_tick(uint64_t* tick_time_ns)
+{
+    if (!tick_time_ns || !subscriber || !requester)
+    {
+        return -1;
+    }
+
+    // Wait for next tick message
+    int recv_bytes = zmq_recv(subscriber, tick_time_ns, sizeof(*tick_time_ns), 0);
+    if (recv_bytes != sizeof(*tick_time_ns))
+    {
+        return -1;
+    }
+
+    // Send acknowledgment - just send the client ID
+    if (zmq_send(requester, client_id, strlen(client_id), 0) == -1)
+    {
+        return -1;
+    }
+
+    // Wait for server ACK
+    char reply[16] = {0};
+    if (zmq_recv(requester, reply, sizeof(reply) - 1, 0) == -1)
+    {
+        return -1;
+    }
+
+    return 0;
+}
+
 void simulith_client_shutdown(void)
 {
     if (subscriber)
