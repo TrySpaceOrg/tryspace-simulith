@@ -230,7 +230,7 @@ int main(int argc, char *argv[])
     // Wait a second for the Simulith server to start up
     sleep(1);
 
-    if (simulith_client_init(CLIENT_PUB_ADDR, CLIENT_REP_ADDR, "tryspace-director", INTERVAL_NS) != 0) 
+    if (simulith_client_init(LOCAL_PUB_ADDR, LOCAL_REP_ADDR, "tryspace-director", INTERVAL_NS) != 0) 
     {
         printf("Failed to initialize Simulith client\n");
         cleanup_components(&g_director_config);
