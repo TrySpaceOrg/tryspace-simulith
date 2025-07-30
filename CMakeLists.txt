@@ -43,6 +43,11 @@ set(SIMULITH_SOURCES
 add_library(simulith STATIC ${SIMULITH_SOURCES})
 target_link_libraries(simulith ${ZeroMQ_LIBRARIES})
 
+# Build Simulith director (dynamically loads components)
+add_executable(simulith_director_standalone 
+                src/simulith_director.c)
+target_link_libraries(simulith_director_standalone simulith ${ZeroMQ_LIBRARIES} dl)
+
 # Build Simulith server standalone
 add_executable(simulith_server_standalone 
                 src/simulith_common.c

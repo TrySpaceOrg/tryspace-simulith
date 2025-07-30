@@ -1,4 +1,5 @@
 #include "simulith.h"
+#include <sched.h>
 
 #define MAX_CLIENTS 32
 
@@ -61,12 +62,23 @@ int simulith_server_init(const char *pub_bind, const char *rep_bind, int client_
         return -1;
     }
 
+    // Optimize ZMQ settings for performance
+    int sndhwm = 1000;
+    int linger = 0;
+    zmq_setsockopt(publisher, ZMQ_SNDHWM, &sndhwm, sizeof(sndhwm));
+    zmq_setsockopt(publisher, ZMQ_LINGER, &linger, sizeof(linger));
+
     responder = zmq_socket(server_context, ZMQ_REP);
     if (!responder || zmq_bind(responder, rep_bind) != 0)
     {
         perror("Responder socket setup failed");
         return -1;
     }
+
+    // Optimize responder settings
+    int rcvhwm = 1000;
+    zmq_setsockopt(responder, ZMQ_RCVHWM, &rcvhwm, sizeof(rcvhwm));
+    zmq_setsockopt(responder, ZMQ_LINGER, &linger, sizeof(linger));
 
     // Initialize client states
     for (int i = 0; i < MAX_CLIENTS; ++i)
@@ -245,7 +257,7 @@ void simulith_server_run(void)
                 } else if (strncmp(cli_buf, "+", 1) == 0) 
                 {
                     speed *= 2.0;
-                    if (speed > 256.0) speed = 256.0;
+                    if (speed > 1024.0) speed = 1024.0;
                     g_attempted_speed = speed;
                     printf("Attempted simulation speed: %.2fx\n", speed);
                 } else if (strncmp(cli_buf, "-", 1) == 0) 
@@ -277,40 +289,68 @@ void simulith_server_run(void)
             while (!all_clients_responded() && running) 
             {
                 char buffer[64] = {0};
-                int  size       = zmq_recv(responder, buffer, sizeof(buffer) - 1, 0);
+                int  size       = zmq_recv(responder, buffer, sizeof(buffer) - 1, ZMQ_DONTWAIT);
                 if (size > 0) 
                 {
                     buffer[size] = '\0';
                     handle_ack(buffer);
                     zmq_send(responder, "ACK", 3, 0);
                 }
-                // Check for CLI input during wait
-                FD_ZERO(&readfds);
-                FD_SET(0, &readfds);
-                tv.tv_sec = 0;
-                tv.tv_usec = 0;
-                cli_ready = select(1, &readfds, NULL, NULL, &tv);
-                if (cli_ready > 0 && FD_ISSET(0, &readfds)) 
+                else if (errno == EAGAIN)
                 {
-                    if (fgets(cli_buf, sizeof(cli_buf), stdin)) 
+                    // No message available, yield CPU more aggressively for high speed
+                    if (speed >= 256.0) {
+                        // At extreme speeds, pure busy wait with minimal overhead
+                        continue;
+                    } else if (speed >= 128.0) {
+                        // At very high speeds, don't yield at all - busy wait
+                        continue;
+                    } else if (speed >= 64.0) {
+                        // At high speeds, minimal yield
+                        sched_yield();
+                    } else if (speed >= 16.0) {
+                        // At medium speeds, minimal yield
+                        sched_yield();
+                    } else {
+                        // At lower speeds, small sleep is fine
+                        usleep(1);
+                    }
+                }
+                
+                // Check for CLI input during wait (much less frequently at high speeds)
+                static int cli_check_counter = 0;
+                int cli_check_interval = (speed >= 256.0) ? 50000 : (speed >= 128.0) ? 20000 : (speed >= 64.0) ? 10000 : (speed >= 16.0) ? 1000 : 100;
+                if (++cli_check_counter % cli_check_interval == 0)
+                {
+                    FD_ZERO(&readfds);
+                    FD_SET(0, &readfds);
+                    tv.tv_sec = 0;
+                    tv.tv_usec = 0;
+                    cli_ready = select(1, &readfds, NULL, NULL, &tv);
+                    if (cli_ready > 0 && FD_ISSET(0, &readfds)) 
                     {
-                        if (strncmp(cli_buf, "p", 1) == 0) 
+                        if (fgets(cli_buf, sizeof(cli_buf), stdin)) 
                         {
-                            paused = !paused;
-                            printf(paused ? "Simulation paused.\n" : "Simulation resumed.\n");
-                        } else if (strncmp(cli_buf, "+", 1) == 0) 
-                        {
-                            speed *= 2.0;
-                            if (speed > 256.0) speed = 256.0;
-                            printf("Attempted simulation speed: %.2fx\n", speed);
-                        } else if (strncmp(cli_buf, "-", 1) == 0) 
-                        {
-                            speed /= 2.0;
-                            if (speed < 0.015625) speed = 0.015625;
-                            printf("Attempted simulation speed: %.4fx\n", speed);
-                        } else 
-                        {
-                            printf("Unknown command. Use 'p', '+', or '-'.\n");
+                            if (strncmp(cli_buf, "p", 1) == 0) 
+                            {
+                                paused = !paused;
+                                printf(paused ? "Simulation paused.\n" : "Simulation resumed.\n");
+                            } else if (strncmp(cli_buf, "+", 1) == 0) 
+                            {
+                                speed *= 2.0;
+                                if (speed > 1024.0) speed = 1024.0;
+                                g_attempted_speed = speed;
+                                printf("Attempted simulation speed: %.2fx\n", speed);
+                            } else if (strncmp(cli_buf, "-", 1) == 0) 
+                            {
+                                speed /= 2.0;
+                                if (speed < 0.015625) speed = 0.015625;
+                                g_attempted_speed = speed;
+                                printf("Attempted simulation speed: %.4fx\n", speed);
+                            } else 
+                            {
+                                printf("Unknown command. Use 'p', '+', or '-'.\n");
+                            }
                         }
                     }
                 }
@@ -322,13 +362,31 @@ void simulith_server_run(void)
                 clock_gettime(CLOCK_MONOTONIC, &end_ts);
                 uint64_t elapsed_ns = (end_ts.tv_sec - start_ts.tv_sec) * 1000000000ULL + (end_ts.tv_nsec - start_ts.tv_nsec);
                 uint64_t target_ns = (uint64_t)((double)tick_interval_ns / speed);
+                
                 if (elapsed_ns < target_ns) 
                 {
                     uint64_t sleep_ns = target_ns - elapsed_ns;
-                    struct timespec ts;
-                    ts.tv_sec = sleep_ns / 1000000000ULL;
-                    ts.tv_nsec = sleep_ns % 1000000000ULL;
-                    nanosleep(&ts, NULL);
+                    
+                    // At very high speeds, skip sleep entirely for maximum performance
+                    if (speed >= 256.0) {
+                        // No sleep - run as fast as possible with maximum performance
+                    } else if (speed >= 128.0) {
+                        // No sleep - run as fast as possible
+                    } else if (speed >= 64.0) {
+                        // Very short busy wait for precise timing
+                        struct timespec start_wait, now_wait;
+                        clock_gettime(CLOCK_MONOTONIC, &start_wait);
+                        do {
+                            clock_gettime(CLOCK_MONOTONIC, &now_wait);
+                        } while ((now_wait.tv_sec - start_wait.tv_sec) * 1000000000ULL + 
+                                (now_wait.tv_nsec - start_wait.tv_nsec) < sleep_ns);
+                    } else {
+                        // Normal nanosleep for lower speeds
+                        struct timespec ts;
+                        ts.tv_sec = sleep_ns / 1000000000ULL;
+                        ts.tv_nsec = sleep_ns % 1000000000ULL;
+                        nanosleep(&ts, NULL);
+                    }
                 }
             }
             current_time_ns += tick_interval_ns;

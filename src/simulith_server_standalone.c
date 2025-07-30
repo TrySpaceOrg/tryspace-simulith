@@ -15,7 +15,7 @@ int main(int argc, char *argv[])
     }
     
     printf("Starting Simulith Server with %d client(s)...\n", num_clients);
-    simulith_server_init(SERVER_PUB_ADDR, SERVER_REP_ADDR, num_clients, INTERVAL_NS);
+    simulith_server_init(LOCAL_PUB_ADDR, LOCAL_REP_ADDR, num_clients, INTERVAL_NS);
     simulith_server_run();
     simulith_server_shutdown();
     return 0;
