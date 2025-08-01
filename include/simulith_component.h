@@ -2,6 +2,8 @@
 #define SIMULITH_COMPONENT_H
 
 #include <stdint.h>
+#include "simulith_42_context.h"
+#include "simulith_42_commands.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -21,7 +23,7 @@ typedef struct {
     
     // Lifecycle functions
     int (*init)(component_state_t** state);
-    void (*tick)(component_state_t* state, uint64_t tick_time_ns);
+    void (*tick)(component_state_t* state, uint64_t tick_time_ns, const simulith_42_context_t* context_42);
     void (*cleanup)(component_state_t* state);
     
     // Optional configuration function

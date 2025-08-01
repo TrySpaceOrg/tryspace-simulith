@@ -21,12 +21,26 @@
 
 #include "simulith.h"
 #include "simulith_director.h"
+#include "simulith_42_context.h"
+#include "simulith_42_commands.h"
 #include <errno.h>
 #include <unistd.h>  // For access() function
 #include <string.h>  // For strcmp() function
 
+// Include 42 headers for accessing spacecraft data
+#ifdef __cplusplus
+extern "C" {
+#endif
+#include "42.h"
+#ifdef __cplusplus
+}
+#endif
+
 // Global director config for callback access
 director_config_t g_director_config;
+
+// Global command queue for 42 commands
+static simulith_42_cmd_queue_t g_command_queue = {0};
 
 int parse_args(int argc, char *argv[], director_config_t *config) 
 {
@@ -252,22 +266,265 @@ void cleanup_components(director_config_t* config)
     config->lib_count = 0;
 }
 
+void populate_42_context(simulith_42_context_t* context)
+{
+    // Initialize context
+    memset(context, 0, sizeof(simulith_42_context_t));
+    
+    // Check if 42 is enabled and initialized
+    if (!g_director_config.enable_42 || !g_director_config.fortytwo_initialized) {
+        context->valid = 0;
+        return;
+    }
+    
+    // Check if we have at least one spacecraft
+    extern long Nsc;           // Number of spacecraft from 42
+    extern struct SCType *SC;  // Spacecraft array from 42
+    extern double SimTime, DynTime; // Time variables from 42
+    
+    if (Nsc == 0 || !SC || !SC[0].Exists) {
+        context->valid = 0;
+        return;
+    }
+    
+    // Use first spacecraft (SC[0]) for context
+    struct SCType *spacecraft = &SC[0];
+    
+    // Time information
+    context->sim_time = SimTime;
+    context->dyn_time = DynTime;
+    
+    // Copy attitude quaternion (42 uses [q1,q2,q3,q0] format, we use [qx,qy,qz,qw])
+    for (int i = 0; i < 4; i++) {
+        context->qn[i] = spacecraft->qn[i];
+    }
+    
+    // Copy angular rates
+    for (int i = 0; i < 3; i++) {
+        context->wn[i] = spacecraft->wn[i];
+    }
+    
+    // Copy position and velocity
+    for (int i = 0; i < 3; i++) {
+        context->pos_n[i] = spacecraft->PosN[i];
+        context->vel_n[i] = spacecraft->VelN[i];
+        context->pos_r[i] = spacecraft->PosR[i];
+        context->vel_r[i] = spacecraft->VelR[i];
+    }
+    
+    // Copy environmental vectors
+    for (int i = 0; i < 3; i++) {
+        context->sun_vector_body[i] = spacecraft->svb[i];
+        context->mag_field_body[i] = spacecraft->bvb[i];
+        context->sun_vector_inertial[i] = spacecraft->svn[i];
+        context->mag_field_inertial[i] = spacecraft->bvn[i];
+    }
+    
+    // Copy spacecraft properties
+    context->mass = spacecraft->mass;
+    for (int i = 0; i < 3; i++) {
+        context->cm[i] = spacecraft->cm[i];
+        for (int j = 0; j < 3; j++) {
+            context->inertia[i][j] = spacecraft->I[i][j];
+        }
+    }
+    
+    // Environmental conditions
+    context->eclipse = spacecraft->Eclipse;
+    context->atmo_density = spacecraft->AtmoDensity;
+    
+    // Spacecraft identification
+    context->spacecraft_id = spacecraft->ID;
+    context->exists = spacecraft->Exists;
+    strncpy(context->label, spacecraft->Label, sizeof(context->label) - 1);
+    context->label[sizeof(context->label) - 1] = '\0';
+    
+    // Mark context as valid
+    context->valid = 1;
+}
+
+// Command Queue Functions
+static int enqueue_command(const simulith_42_command_t* cmd)
+{
+    if (g_command_queue.count >= SIMULITH_42_CMD_QUEUE_SIZE) {
+        printf("Warning: 42 command queue full, dropping command\n");
+        return -1;
+    }
+    
+    g_command_queue.commands[g_command_queue.head] = *cmd;
+    g_command_queue.head = (g_command_queue.head + 1) % SIMULITH_42_CMD_QUEUE_SIZE;
+    g_command_queue.count++;
+    return 0;
+}
+
+static int dequeue_command(simulith_42_command_t* cmd)
+{
+    if (g_command_queue.count == 0) {
+        return -1; // Queue empty
+    }
+    
+    *cmd = g_command_queue.commands[g_command_queue.tail];
+    g_command_queue.tail = (g_command_queue.tail + 1) % SIMULITH_42_CMD_QUEUE_SIZE;
+    g_command_queue.count--;
+    return 0;
+}
+
+// Command Interface Functions (called by simulators)
+int simulith_42_send_mtb_command(int spacecraft_id, const double dipole[3], int enable_mask)
+{
+    simulith_42_command_t cmd = {0};
+    cmd.type = SIMULITH_42_CMD_MTB_TORQUE;
+    cmd.spacecraft_id = spacecraft_id;
+    cmd.valid = 1;
+    
+    for (int i = 0; i < 3; i++) {
+        cmd.cmd.mtb.dipole[i] = dipole[i];
+    }
+    cmd.cmd.mtb.enable_mask = enable_mask;
+    
+    return enqueue_command(&cmd);
+}
+
+int simulith_42_send_wheel_command(int spacecraft_id, const double torque[4], int enable_mask)
+{
+    simulith_42_command_t cmd = {0};
+    cmd.type = SIMULITH_42_CMD_WHEEL_TORQUE;
+    cmd.spacecraft_id = spacecraft_id;
+    cmd.valid = 1;
+    
+    for (int i = 0; i < 4; i++) {
+        cmd.cmd.wheel.torque[i] = torque[i];
+    }
+    cmd.cmd.wheel.enable_mask = enable_mask;
+    
+    return enqueue_command(&cmd);
+}
+
+int simulith_42_send_thruster_command(int spacecraft_id, const double thrust[3], const double torque[3], int enable_mask)
+{
+    simulith_42_command_t cmd = {0};
+    cmd.type = SIMULITH_42_CMD_THRUSTER;
+    cmd.spacecraft_id = spacecraft_id;
+    cmd.valid = 1;
+    
+    for (int i = 0; i < 3; i++) {
+        cmd.cmd.thruster.thrust[i] = thrust[i];
+        cmd.cmd.thruster.torque[i] = torque[i];
+    }
+    cmd.cmd.thruster.enable_mask = enable_mask;
+    
+    return enqueue_command(&cmd);
+}
+
+// Process commands and apply them to 42
+static void process_42_commands(void)
+{
+    simulith_42_command_t cmd;
+    extern long Nsc;
+    extern struct SCType *SC;
+    
+    if (!g_director_config.enable_42 || !g_director_config.fortytwo_initialized || !SC) {
+        return;
+    }
+    
+    // Process all queued commands
+    while (dequeue_command(&cmd) == 0) {
+        if (!cmd.valid || cmd.spacecraft_id >= Nsc || !SC[cmd.spacecraft_id].Exists) {
+            continue;
+        }
+        
+        struct SCType *spacecraft = &SC[cmd.spacecraft_id];
+        
+        switch (cmd.type) {
+            case SIMULITH_42_CMD_MTB_TORQUE:
+                // Apply MTB command to 42
+                for (int i = 0; i < spacecraft->Nmtb && i < 3; i++) {
+                    if (cmd.cmd.mtb.enable_mask & (1 << i)) {
+                        // Set MTB dipole moment (42 stores this in MTB[i].M)
+                        // Note: You may need to adjust this based on 42's MTB structure
+                        if (spacecraft->MTB) {
+                            spacecraft->MTB[i].M = cmd.cmd.mtb.dipole[i];
+                        }
+                    }
+                }
+                if (g_director_config.verbose) {
+                    printf("Applied MTB command: dipole=[%.6f, %.6f, %.6f], mask=0x%X\n",
+                           cmd.cmd.mtb.dipole[0], cmd.cmd.mtb.dipole[1], cmd.cmd.mtb.dipole[2],
+                           cmd.cmd.mtb.enable_mask);
+                }
+                break;
+                
+            case SIMULITH_42_CMD_WHEEL_TORQUE:
+                // Apply wheel command to 42
+                for (int i = 0; i < spacecraft->Nw && i < 4; i++) {
+                    if (cmd.cmd.wheel.enable_mask & (1 << i)) {
+                        // Set wheel torque (42 stores this in Whl[i].Tcmd)
+                        if (spacecraft->Whl) {
+                            spacecraft->Whl[i].Tcmd = cmd.cmd.wheel.torque[i];
+                        }
+                    }
+                }
+                if (g_director_config.verbose) {
+                    printf("Applied wheel command: torque=[%.6f, %.6f, %.6f, %.6f], mask=0x%X\n",
+                           cmd.cmd.wheel.torque[0], cmd.cmd.wheel.torque[1], 
+                           cmd.cmd.wheel.torque[2], cmd.cmd.wheel.torque[3],
+                           cmd.cmd.wheel.enable_mask);
+                }
+                break;
+                
+            case SIMULITH_42_CMD_THRUSTER:
+                // Apply thruster command to 42
+                for (int i = 0; i < spacecraft->Nthr && i < 3; i++) {
+                    if (cmd.cmd.thruster.enable_mask & (1 << i)) {
+                        // Set thruster command (42 uses ThrustLevelCmd for proportional mode)
+                        if (spacecraft->Thr) {
+                            // Normalize thrust to 0-1 range for ThrustLevelCmd
+                            double thrust_level = cmd.cmd.thruster.thrust[i] / spacecraft->Thr[i].Fmax;
+                            if (thrust_level > 1.0) thrust_level = 1.0;
+                            if (thrust_level < 0.0) thrust_level = 0.0;
+                            spacecraft->Thr[i].ThrustLevelCmd = thrust_level;
+                        }
+                    }
+                }
+                if (g_director_config.verbose) {
+                    printf("Applied thruster command: thrust=[%.6f, %.6f, %.6f], torque=[%.6f, %.6f, %.6f], mask=0x%X\n",
+                           cmd.cmd.thruster.thrust[0], cmd.cmd.thruster.thrust[1], cmd.cmd.thruster.thrust[2],
+                           cmd.cmd.thruster.torque[0], cmd.cmd.thruster.torque[1], cmd.cmd.thruster.torque[2],
+                           cmd.cmd.thruster.enable_mask);
+                }
+                break;
+                
+            default:
+                printf("Warning: Unknown 42 command type: %d\n", cmd.type);
+                break;
+        }
+    }
+}
+
 void on_tick(uint64_t tick_time_ns)
 {
+    // Populate 42 context for this tick
+    simulith_42_context_t context_42;
+    populate_42_context(&context_42);
+    
+    // Run each of the configured simulators with 42 context
+    // (Do this BEFORE 42 step so simulators can queue commands)
+    for (int i = 0; i < g_director_config.component_count; i++) {
+        component_entry_t* entry = &g_director_config.components[i];
+        if (entry->active && entry->interface && entry->interface->tick && entry->state) {
+            entry->interface->tick(entry->state, tick_time_ns, &context_42);
+        }
+    }
+    
+    // Process any commands from simulators before 42 step
+    process_42_commands();
+    
     // Execute 42 dynamics simulation step
     if (g_director_config.enable_42 && g_director_config.fortytwo_initialized) {
         int result = SimStep();
         if (result < 0) 
         {
             printf("42 simulation step failed\n");
-        }
-    }
-    
-    // Run each of the configured simulators
-    for (int i = 0; i < g_director_config.component_count; i++) {
-        component_entry_t* entry = &g_director_config.components[i];
-        if (entry->active && entry->interface && entry->interface->tick && entry->state) {
-            entry->interface->tick(entry->state, tick_time_ns);
         }
     }
 }
