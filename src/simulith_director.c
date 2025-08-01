@@ -22,6 +22,8 @@
 #include "simulith.h"
 #include "simulith_director.h"
 #include <errno.h>
+#include <unistd.h>  // For access() function
+#include <string.h>  // For strcmp() function
 
 // Global director config for callback access
 director_config_t g_director_config;
@@ -31,11 +33,33 @@ int parse_args(int argc, char *argv[], director_config_t *config)
     // Set defaults
     strcpy(config->config_file, "spacecraft.conf");
     strcpy(config->components_dir, "./components");  // Default components directory
+    strcpy(config->fortytwo_config, "./InOut");      // Default 42 configuration directory (Docker path)
     config->time_step_ms = 100;  // 100ms default
     config->duration_s = 0;      // Run indefinitely 
     config->verbose = 0;
+    config->enable_42 = 1;       // Enable 42 by default now that we have the correct path
+    config->fortytwo_initialized = 0;
     
-    // TODO: Parse command line arguments
+    // Parse command line arguments
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--enable-42") == 0) {
+            config->enable_42 = 1;
+            printf("42 dynamics simulation enabled via command line\n");
+        } else if (strcmp(argv[i], "--42-config") == 0 && i + 1 < argc) {
+            strcpy(config->fortytwo_config, argv[++i]);
+            printf("42 config directory set to: %s\n", config->fortytwo_config);
+        } else if (strcmp(argv[i], "--verbose") == 0) {
+            config->verbose = 1;
+        } else if (strcmp(argv[i], "--help") == 0) {
+            printf("Simulith Director Options:\n");
+            printf("  --enable-42        Enable 42 dynamics simulation\n");
+            printf("  --42-config DIR    Set 42 configuration directory (default: ./InOut)\n");
+            printf("  --verbose          Enable verbose output\n");
+            printf("  --help             Show this help message\n");
+            return -1;  // Exit after showing help
+        }
+    }
+    
     return 0;
 }
 
@@ -163,6 +187,47 @@ int initialize_components(director_config_t* config)
     return 0;
 }
 
+int initialize_42(director_config_t* config)
+{
+    if (!config->enable_42) {
+        printf("42 simulation disabled\n");
+        return 0;
+    }
+    
+    printf("Initializing 42 dynamics simulation...\n");
+    
+    // Check if 42 configuration directory exists
+    if (access(config->fortytwo_config, F_OK) != 0) {
+        printf("Warning: 42 config directory not found: %s\n", config->fortytwo_config);
+        printf("42 simulation will be disabled for this run\n");
+        config->enable_42 = 0;
+        return 0;
+    }
+    
+    // Check if required configuration file exists
+    char config_file_path[512];
+    snprintf(config_file_path, sizeof(config_file_path), "%s/Inp_Sim.txt", config->fortytwo_config);
+    if (access(config_file_path, R_OK) != 0) {
+        printf("Warning: Required 42 config file not found: %s\n", config_file_path);
+        printf("42 simulation will be disabled for this run\n");
+        config->enable_42 = 0;
+        return 0;
+    }
+    
+    // Create minimal argc/argv for 42 initialization
+    char* fortytwo_argv[3];
+    fortytwo_argv[0] = (char*)"simulith_director";
+    fortytwo_argv[1] = (char*)config->fortytwo_config;  // Pass the config directory path
+    fortytwo_argv[2] = NULL;
+    
+    printf("Calling 42 InitSim with config path: %s\n", config->fortytwo_config);
+    InitSim(2, fortytwo_argv);  // Pass 2 arguments: program name and config path
+    
+    config->fortytwo_initialized = 1;
+    printf("42 simulation initialized successfully\n");
+    return 0;
+}
+
 void cleanup_components(director_config_t* config)
 {
     printf("Cleaning up components...\n");
@@ -189,7 +254,14 @@ void cleanup_components(director_config_t* config)
 
 void on_tick(uint64_t tick_time_ns)
 {
-    // Execute 42 
+    // Execute 42 dynamics simulation step
+    if (g_director_config.enable_42 && g_director_config.fortytwo_initialized) {
+        int result = SimStep();
+        if (result < 0) 
+        {
+            printf("42 simulation step failed\n");
+        }
+    }
     
     // Run each of the configured simulators
     for (int i = 0; i < g_director_config.component_count; i++) {
@@ -204,7 +276,10 @@ int main(int argc, char *argv[])
 {
     printf("Simulith Director starting...\n");
     
-    if (parse_args(argc, argv, &g_director_config) != 0) {
+    int parse_result = parse_args(argc, argv, &g_director_config);
+    if (parse_result < 0) {
+        return 0;  // Help was shown or parsing failed
+    } else if (parse_result > 0) {
         fprintf(stderr, "Failed to parse arguments\n");
         return 1;
     }
@@ -225,6 +300,13 @@ int main(int argc, char *argv[])
         fprintf(stderr, "Failed to initialize components\n");
         cleanup_components(&g_director_config);
         return 1;
+    }
+
+    if (initialize_42(&g_director_config) != 0)
+    {
+        fprintf(stderr, "Warning: 42 simulation initialization had issues, continuing without it\n");
+        g_director_config.enable_42 = 0;
+        g_director_config.fortytwo_initialized = 0;
     }
 
     // Wait a second for the Simulith server to start up

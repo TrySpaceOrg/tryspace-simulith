@@ -12,6 +12,9 @@
 
 #include "simulith_component.h"
 
+// Include 42 headers for integration
+#include "42.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -36,6 +39,11 @@ typedef struct
     int time_step_ms;
     int duration_s;
     int verbose;
+    
+    // 42 integration
+    int enable_42;             // Whether to run 42 dynamics simulation
+    char fortytwo_config[256]; // Path to 42 configuration directory
+    int fortytwo_initialized;  // Flag indicating if 42 has been initialized
     
     // Component management
     component_entry_t components[MAX_COMPONENTS];
@@ -89,6 +97,24 @@ int initialize_components(director_config_t* config);
  * @param config Director configuration
  */
 void cleanup_components(director_config_t* config);
+
+/**
+ * Initialize 42 dynamics simulation
+ * @param config Director configuration
+ * @return 0 on success, -1 on error
+ */
+int initialize_42(director_config_t* config);
+
+/**
+ * Execute one 42 simulation step
+ * @return 0 on success, 1 if simulation is complete, -1 on error
+ */
+int step_42(void);
+
+/**
+ * Cleanup 42 simulation
+ */
+void cleanup_42(void);
 
 /**
  * Tick callback function for Simulith time stepping
