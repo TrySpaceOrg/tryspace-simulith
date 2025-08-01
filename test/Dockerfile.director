@@ -3,6 +3,8 @@ FROM tryspace-lab:latest
 # Copy built simulith director and components
 COPY ./build/simulith_director_standalone /app/simulith_director_standalone
 COPY ./build/components /app/components
+COPY ./build/InOut /app/InOut
+COPY ./build/Model /app/Model
 
 # Set working directory
 WORKDIR /app

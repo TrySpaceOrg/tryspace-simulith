@@ -22,6 +22,9 @@ build-sim:
 	mkdir -p $(BUILDDIR)/components
 	cp $(BUILDDIR)/*.so $(BUILDDIR)/components/ 2>/dev/null || true
 	cp $(TOPDIR)/comp/demo/sim/build/*.so $(BUILDDIR)/components/ 2>/dev/null || true
+	# Copy 42 configuration to build directory for runtime
+	cp -r 42/InOut $(BUILDDIR)/ 2>/dev/null || true
+	cp -r 42/Model $(BUILDDIR)/ 2>/dev/null || true
 
 clean:
 	rm -rf $(BUILDDIR)

@@ -1,0 +1,4 @@
+[submodule "42"]
+	path = 42
+	url = https://github.com/TrySpaceOrg/tryspace-ext-42.git
+	branch = master
