@@ -13,8 +13,10 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Werror")
 endif()
 
-# Create Unity library with specific compiler flags
+
+# Create Unity library with specific compiler flags and always build with -fPIC
 add_library(unity STATIC unity/unity.c)
+set_target_properties(unity PROPERTIES POSITION_INDEPENDENT_CODE ON)
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(unity PRIVATE -Wno-float-equal)
 endif()
@@ -80,12 +82,16 @@ set(FORTYTWO_SOURCES
     # - gmseckit.c, glkit.c (optional dependencies)
 )
 
-# Build Simulith static library
+
+# Build Simulith static library with -fPIC
 add_library(simulith STATIC ${SIMULITH_SOURCES})
+set_target_properties(simulith PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_link_libraries(simulith ${ZeroMQ_LIBRARIES})
 
-# Build 42 static library
+
+# Build 42 static library with -fPIC
 add_library(fortytwo STATIC ${FORTYTWO_SOURCES})
+set_target_properties(fortytwo PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_compile_definitions(fortytwo PRIVATE 
     __linux__                # Set platform define
     _GNU_SOURCE              # Enable GNU extensions
