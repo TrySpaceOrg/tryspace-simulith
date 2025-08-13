@@ -31,7 +31,7 @@
 #define LOCAL_PUB_ADDR  "ipc:///tmp/simulith_pub"
 #define LOCAL_REP_ADDR  "ipc:///tmp/simulith_rep"
 
-#define INTERVAL_NS 10 * 1000000 // 10 ms
+#define INTERVAL_NS 10000000UL // 10ms tick interval
 
 #ifdef __cplusplus
 extern "C"
