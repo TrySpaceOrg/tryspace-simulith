@@ -9,34 +9,30 @@ env:
   CTEST_OUTPUT_ON_FAILURE: true
 
 jobs:
-  setup:
+  build-sim:
     runs-on: ubuntu-latest
+    container:
+        image: tryspaceorg/tryspace-lab
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
-
-      - name: Install GNU Make
-        run: sudo apt-get update && sudo apt-get install -y \
-          build-essential \
-          cmake \
-          libzmq3-dev \
-          make \
-          pkg-config
-  
-  build-sim:
-    needs: setup
-    runs-on: ubuntu-latest
-    steps:
+          fetch-depth: 1
       - name: Build Simulith
         run: |
           make build-sim
 
   build-test:
-    needs: setup
     runs-on: ubuntu-latest
+    container:
+        image: tryspaceorg/tryspace-lab
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
       - name: Build Test
         run: |
           make build-test
