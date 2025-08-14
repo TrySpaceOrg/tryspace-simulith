@@ -1,6 +1,11 @@
+# Simulith CMake configuration
 cmake_minimum_required(VERSION 3.25)
-project(Simulith C)
+project(Simulith VERSION 0.0 LANGUAGES C)
 
+# Enable compile_commands.json for IDEs and static analysis
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+# Set C standard
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
@@ -8,26 +13,18 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(ZeroMQ REQUIRED libzmq)
 
-# Compiler flags
+# Global compiler flags (applied to all targets)
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Werror")
+    add_compile_options(-Wall -Werror)
 endif()
-
 
 # Create Unity library with specific compiler flags and always build with -fPIC
 add_library(unity STATIC unity/unity.c)
 set_target_properties(unity PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_include_directories(unity PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/unity)
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(unity PRIVATE -Wno-float-equal)
 endif()
-
-include_directories(
-    include
-    unity
-    42/Include
-    42/Kit/Include
-    ${ZeroMQ_INCLUDE_DIRS}
-)
 
 # Simulith library sources
 set(SIMULITH_SOURCES
@@ -43,7 +40,19 @@ set(SIMULITH_SOURCES
     src/simulith_uart.c
 )
 
-# 42 Core library sources (excluding main, GUI, and app-specific files)
+# Build Simulith static library with -fPIC, used by HWLIB
+add_library(simulith STATIC ${SIMULITH_SOURCES})
+set_target_properties(simulith PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_include_directories(simulith PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/unity
+    ${CMAKE_CURRENT_SOURCE_DIR}/42/Include
+    ${CMAKE_CURRENT_SOURCE_DIR}/42/Kit/Include
+    ${ZeroMQ_INCLUDE_DIRS}
+)
+target_link_libraries(simulith PUBLIC ${ZeroMQ_LIBRARIES})
+
+# Build 42 as a library
 set(FORTYTWO_SOURCES
     42/Source/42exec.c
     42/Source/42init.c
@@ -82,16 +91,13 @@ set(FORTYTWO_SOURCES
     # - gmseckit.c, glkit.c (optional dependencies)
 )
 
-
-# Build Simulith static library with -fPIC
-add_library(simulith STATIC ${SIMULITH_SOURCES})
-set_target_properties(simulith PROPERTIES POSITION_INDEPENDENT_CODE ON)
-target_link_libraries(simulith ${ZeroMQ_LIBRARIES})
-
-
-# Build 42 static library with -fPIC
+# Build 42 as a library
 add_library(fortytwo STATIC ${FORTYTWO_SOURCES})
 set_target_properties(fortytwo PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_include_directories(fortytwo PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/42/Include
+    ${CMAKE_CURRENT_SOURCE_DIR}/42/Kit/Include
+)
 target_compile_definitions(fortytwo PRIVATE 
     __linux__                # Set platform define
     _GNU_SOURCE              # Enable GNU extensions
@@ -116,9 +122,8 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
 endif()
 
 # Build Simulith director (dynamically loads components)
-add_executable(simulith_director_standalone 
-                src/simulith_director.c)
-target_link_libraries(simulith_director_standalone simulith fortytwo ${ZeroMQ_LIBRARIES} dl m)
+add_executable(simulith_director_standalone src/simulith_director.c)
+target_link_libraries(simulith_director_standalone PRIVATE simulith fortytwo ${ZeroMQ_LIBRARIES} dl m)
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     # Handle warnings for director due to 42 integration
     target_compile_options(simulith_director_standalone PRIVATE 
@@ -130,10 +135,11 @@ endif()
 
 # Build Simulith server standalone
 add_executable(simulith_server_standalone 
-                src/simulith_common.c
-                src/simulith_server.c
-                src/simulith_server_standalone.c)
-target_link_libraries(simulith_server_standalone ${ZeroMQ_LIBRARIES})
+    src/simulith_common.c
+    src/simulith_server.c
+    src/simulith_server_standalone.c)
+target_link_libraries(simulith_server_standalone PRIVATE simulith ${ZeroMQ_LIBRARIES})
+
 
 # Optionally add tests subdirectory
 option(BUILD_SIMULITH_TESTS "Build Simulith tests" OFF)

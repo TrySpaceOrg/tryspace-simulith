@@ -1,4 +1,4 @@
-FROM tryspace-lab:latest
+FROM tryspaceorg/tryspace-lab:latest
 
 # Copy built FSW files into the image
 COPY build /app

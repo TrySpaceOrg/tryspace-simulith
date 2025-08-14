@@ -1,4 +1,4 @@
-FROM tryspace-lab:latest
+FROM tryspaceorg/tryspace-lab:latest
 
 # Copy built simulith director and components
 COPY ./build/simulith_director_standalone /app/simulith_director_standalone
