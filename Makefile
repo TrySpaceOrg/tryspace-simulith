@@ -4,7 +4,7 @@
 export BUILDDIR ?= $(CURDIR)/build
 export TOPDIR ?= $(CURDIR)/..
 
-export BUILD_IMAGE ?= tryspaceorg/tryspace-lab
+export BUILD_IMAGE ?= tryspaceorg/tryspace-lab:0.0.0
 export CONTAINER_NAME ?= tryspace-lab
 export RUNTIME_DIRECTOR_NAME ?= tryspace-director
 export RUNTIME_SERVER_NAME ?= tryspace-server
