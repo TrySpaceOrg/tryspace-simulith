@@ -4,14 +4,19 @@
 export BUILDDIR ?= $(CURDIR)/build
 export TOPDIR ?= $(CURDIR)/..
 
-export BUILD_IMAGE ?= tryspaceorg/tryspace-lab
+export BUILD_IMAGE ?= tryspaceorg/tryspace-lab:0.0.0
 export CONTAINER_NAME ?= tryspace-lab
 export RUNTIME_DIRECTOR_NAME ?= tryspace-director
 export RUNTIME_SERVER_NAME ?= tryspace-server
 
+# Determine number of parallel jobs to avoid maxing out low-power systems (Raspberry Pi etc.).
+# Use `nproc - 1` but ensure at least 1 job.
+NPROC := $(shell nproc 2>/dev/null || echo 1)
+JOBS := $(shell if [ $(NPROC) -le 1 ]; then echo 1; else expr $(NPROC) - 1; fi)
+
 # Commands
 build:
-	docker run --rm -v $(TOPDIR):$(TOPDIR) --user $(shell id -u):$(shell id -g) --name $(CONTAINER_NAME) -w $(CURDIR) $(BUILD_IMAGE) make -j build-sim
+	docker run --rm -v $(TOPDIR):$(TOPDIR) --user $(shell id -u):$(shell id -g) --name $(CONTAINER_NAME) -w $(CURDIR) $(BUILD_IMAGE) make -j$(JOBS) build-sim
 
 build-director: 
 	mkdir -p $(BUILDDIR)
@@ -58,4 +63,4 @@ stop:
 	docker ps --filter name=tryspace-* | xargs docker stop
 
 test:
-	docker run --rm -v $(TOPDIR):$(TOPDIR) --user $(shell id -u):$(shell id -g) --name $(CONTAINER_NAME) -w $(CURDIR) $(BUILD_IMAGE) make -j build-test
+	docker run --rm -v $(TOPDIR):$(TOPDIR) --user $(shell id -u):$(shell id -g) --name $(CONTAINER_NAME) -w $(CURDIR) $(BUILD_IMAGE) make -j$(JOBS) build-test
