@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - '**'
+
+env:
+  CTEST_OUTPUT_ON_FAILURE: true
+
+jobs:
+  build-sim:
+    runs-on: ubuntu-latest
+    container:
+        image: tryspaceorg/tryspace-lab:0.0.0
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+      - name: Build Simulith
+        run: |
+          make build-sim
+
+  build-test:
+    runs-on: ubuntu-latest
+    container:
+        image: tryspaceorg/tryspace-lab:0.0.0
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+      - name: Build Test
+        run: |
+          make build-test

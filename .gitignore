@@ -1,0 +1,10 @@
+#
+# Metadata
+#
+.vagrant
+.vscode
+
+#
+# Build Files
+#
+build
