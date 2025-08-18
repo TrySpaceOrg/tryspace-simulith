@@ -29,8 +29,11 @@ build-server:
 	$(MAKE) --no-print-directory -C $(BUILDDIR) simulith_server_standalone
 	# Create components directory and copy shared libraries
 	mkdir -p $(BUILDDIR)/components
-	cp $(BUILDDIR)/*.so $(BUILDDIR)/components/ 2>/dev/null || true
-	cp $(TOPDIR)/comp/demo/sim/build/*.so $(BUILDDIR)/components/ 2>/dev/null || true
+	@for dir in $(TOPDIR)/comp/*/sim/build ; do \
+		if [ -d "$$dir" ] && [ -f "$$dir/Makefile" ]; then \
+			cp $$dir/*.so $(BUILDDIR)/components/ 2>/dev/null || true; \
+		fi; \
+	done
 	# Copy 42 configuration to build directory for runtime
 	cp -r 42/InOut $(BUILDDIR)/ 2>/dev/null || true
 	cp -r 42/Model $(BUILDDIR)/ 2>/dev/null || true
