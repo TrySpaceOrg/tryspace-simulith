@@ -1,14 +1,13 @@
 /*
- * Simulith UART
+ * Simulith UART - Requirements
  *
- * Requirements:
- * - Shall utilize ZMQ to communicate between nodes
- * - Shall have functions to initialize, send, receive, check available, and flush data
- * - Shall communicate directly to the other end of the node
- * - Shall not block on any function
- * - Shall fail gracefully if peer is unavailable and return error codes (non-zero) instead of crashing
- * - Shall not rely on a server as each node will be initialized with its name and destination
-*/
+ * Shall utilize ZMQ to communicate between nodes
+ * Shall have functions to initialize, send, receive, check available, and flush data
+ * Shall communicate directly to the other end of the node
+ * Shall not block on any function
+ * Shall fail gracefully if peer is unavailable and return error codes (non-zero) instead of crashing.
+ * Shall not rely on a server as each node will be initialized with its name and destination.
+ */
 
 #include "simulith_uart.h"
 
