@@ -1,77 +1,84 @@
+/*
+ * Simulith SPI - Requirements
+ *
+ * Shall utilize ZMQ to communicate between nodes
+ * Shall have functions to initialize, read, write, transaction (both write then read), and close
+ * Shall communicate directly to the other end of the node
+ * Shall not block on any function
+ * Shall fail gracefully if peer is unavailable and return error codes (non-zero) instead of crashing.
+ * Shall not rely on a server as each node will be initialized with its name and destination.
+ */
+
 #ifndef SIMULITH_SPI_H
 #define SIMULITH_SPI_H
 
-#include <stdint.h>
-#include <stddef.h>
+#include "simulith.h"
+
+#define SIMULITH_SPI_SUCCESS 0
+#define SIMULITH_SPI_ERROR  -1
+
+#define SIMULITH_SPI_INITIALIZED 255
+
+#define SIMULITH_SPI_BASE_PORT 8000
 
 #ifdef __cplusplus
 extern "C"
 {
 #endif
 
-    /**
-     * @brief SPI configuration structure
-     */
-    typedef struct
-    {
-        uint32_t clock_hz;    /**< Clock frequency in Hz */
-        uint8_t  mode;        /**< SPI mode (0-3) */
-        uint8_t  bit_order;   /**< Bit order (MSB/LSB first) */
-        uint8_t  cs_polarity; /**< Chip select polarity (active high/low) */
-        uint8_t  data_bits;   /**< Data bits per transfer (4-16) */
-    } simulith_spi_config_t;
+typedef struct {
+    char name[64];
+    char address[128];
+    int is_server;
+    void* zmq_ctx;
+    void* zmq_sock;
+    int init;
+    uint8_t bus_id;
+    uint8_t cs_id;
+} spi_device_t;
 
     /**
-     * @brief Callback function type for SPI transfer operations
-     * @param bus_id Bus identifier
-     * @param cs_id Chip select identifier
-     * @param tx_data Data to transmit (can be NULL for receive-only)
-     * @param rx_data Buffer for received data (can be NULL for transmit-only)
-     * @param len Number of bytes to transfer
-     * @return Number of bytes transferred, -1 on error
+     * @brief Initialize an SPI device
+     * @param device Pointer to SPI device structure
+     * @return SIMULITH_SPI_SUCCESS on success, SIMULITH_SPI_ERROR on failure
      */
-    typedef int (*simulith_spi_transfer_callback)(uint8_t bus_id, uint8_t cs_id, const uint8_t *tx_data,
-                                                  uint8_t *rx_data, size_t len);
+    int simulith_spi_init(spi_device_t *device);
 
     /**
-     * @brief Initialize an SPI bus
-     * @param bus_id Bus identifier (0-7)
-     * @param config SPI configuration structure
-     * @param transfer_cb Callback function for transfer operations
-     * @return 0 on success, -1 on failure
+     * @brief Read data from an SPI device
+     * @param device Pointer to SPI device structure
+     * @param data Buffer to store read data
+     * @param len Number of bytes to read
+     * @return Number of bytes read on success, SIMULITH_SPI_ERROR on failure
      */
-    int simulith_spi_init(uint8_t bus_id, const simulith_spi_config_t *config,
-                          simulith_spi_transfer_callback transfer_cb);
+    int simulith_spi_read(spi_device_t *device, uint8_t *data, size_t len);
 
     /**
-     * @brief Perform an SPI transfer
-     * @param bus_id Bus identifier
-     * @param cs_id Chip select identifier (0-7)
-     * @param tx_data Data to transmit (can be NULL for receive-only)
-     * @param rx_data Buffer for received data (can be NULL for transmit-only)
-     * @param len Number of bytes to transfer
-     * @return Number of bytes transferred, -1 on failure
+     * @brief Write data to an SPI device
+     * @param device Pointer to SPI device structure
+     * @param data Data to write
+     * @param len Number of bytes to write
+     * @return Number of bytes written on success, SIMULITH_SPI_ERROR on failure
      */
-    int simulith_spi_transfer(uint8_t bus_id, uint8_t cs_id, const uint8_t *tx_data, uint8_t *rx_data, size_t len);
+    int simulith_spi_write(spi_device_t *device, const uint8_t *data, size_t len);
 
     /**
-     * @brief Close an SPI bus
-     * @param bus_id Bus identifier
-     * @return 0 on success, -1 on failure
+     * @brief Perform SPI transaction (write then read)
+     * @param device Pointer to SPI device structure
+     * @param tx_data Data to write
+     * @param tx_len Number of bytes to write
+     * @param rx_data Buffer to store read data
+     * @param rx_len Number of bytes to read
+     * @return SIMULITH_SPI_SUCCESS on success, SIMULITH_SPI_ERROR on failure
      */
-    int simulith_spi_close(uint8_t bus_id);
+    int simulith_spi_transaction(spi_device_t *device, const uint8_t *tx_data, size_t tx_len, uint8_t *rx_data, size_t rx_len);
 
-// Constants for SPI configuration
-#define SIMULITH_SPI_MODE_0 0 /**< CPOL=0, CPHA=0 */
-#define SIMULITH_SPI_MODE_1 1 /**< CPOL=0, CPHA=1 */
-#define SIMULITH_SPI_MODE_2 2 /**< CPOL=1, CPHA=0 */
-#define SIMULITH_SPI_MODE_3 3 /**< CPOL=1, CPHA=1 */
-
-#define SIMULITH_SPI_MSB_FIRST 0
-#define SIMULITH_SPI_LSB_FIRST 1
-
-#define SIMULITH_SPI_CS_ACTIVE_LOW  0
-#define SIMULITH_SPI_CS_ACTIVE_HIGH 1
+    /**
+     * @brief Close an SPI device
+     * @param device Pointer to SPI device structure
+     * @return SIMULITH_SPI_SUCCESS on success, SIMULITH_SPI_ERROR on failure
+     */
+    int simulith_spi_close(spi_device_t *device);
 
 #ifdef __cplusplus
 }

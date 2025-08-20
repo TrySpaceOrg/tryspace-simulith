@@ -46,7 +46,7 @@ build-test:
 	mkdir -p $(BUILDDIR)
 	cd $(BUILDDIR) && cmake .. -DBUILD_SIMULITH_TESTS=ON
 	$(MAKE) --no-print-directory -C $(BUILDDIR)
-	cd $(BUILDDIR) && $(MAKE) test
+	cd $(BUILDDIR) && ctest --output-on-failure -O ctest.log
 
 clean:
 	rm -rf $(BUILDDIR)

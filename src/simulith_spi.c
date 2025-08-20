@@ -1,149 +1,126 @@
+/*
+ * Simulith SPI - Requirements
+ *
+ * Shall utilize ZMQ to communicate between nodes
+ * Shall have functions to initialize, read, write, transaction (both write then read), and close
+ * Shall communicate directly to the other end of the node
+ * Shall not block on any function
+ * Shall fail gracefully if peer is unavailable and return error codes (non-zero) instead of crashing.
+ * Shall not rely on a server as each node will be initialized with its name and destination.
+ */
+
 #include "simulith_spi.h"
-#include "simulith.h"
-#include <string.h>
 
-#define MAX_SPI_BUSES 8
-#define MAX_DATA_BITS 16
-
-typedef struct
+int simulith_spi_init(spi_device_t *device)
 {
-    bool                           initialized;
-    simulith_spi_config_t          config;
-    simulith_spi_transfer_callback transfer_callback;
-} spi_bus_t;
+    if (!device) return SIMULITH_SPI_ERROR;
+    if (device->init == SIMULITH_SPI_INITIALIZED) return SIMULITH_SPI_SUCCESS;
 
-static spi_bus_t spi_buses[MAX_SPI_BUSES] = {0};
-
-static bool is_valid_config(const simulith_spi_config_t *config)
-{
-    if (!config)
-        return false;
-
-    // Validate clock frequency (1kHz to 100MHz)
-    if (config->clock_hz < 1000 || config->clock_hz > 100000000)
-        return false;
-
-    // Validate SPI mode (0-3)
-    if (config->mode > SIMULITH_SPI_MODE_3)
-        return false;
-
-    // Validate bit order
-    if (config->bit_order > SIMULITH_SPI_LSB_FIRST)
-        return false;
-
-    // Validate CS polarity
-    if (config->cs_polarity > SIMULITH_SPI_CS_ACTIVE_HIGH)
-        return false;
-
-    // Validate data bits (4-16)
-    if (config->data_bits < 4 || config->data_bits > MAX_DATA_BITS)
-        return false;
-
-    return true;
-}
-
-int simulith_spi_init(uint8_t bus_id, const simulith_spi_config_t *config, simulith_spi_transfer_callback transfer_cb)
-{
-    if (bus_id >= MAX_SPI_BUSES)
-    {
-        simulith_log("Invalid SPI bus ID: %d\n", bus_id);
-        return -1;
+    device->zmq_ctx = zmq_ctx_new();
+    if (!device->zmq_ctx) {
+        simulith_log("simulith_spi_init: Failed to create ZMQ context\n");
+        return SIMULITH_SPI_ERROR;
     }
-
-    if (!is_valid_config(config))
-    {
-        simulith_log("Invalid SPI configuration for bus %d\n", bus_id);
-        return -1;
+    device->zmq_sock = zmq_socket(device->zmq_ctx, ZMQ_PAIR);
+    if (!device->zmq_sock) {
+        simulith_log("simulith_spi_init: Failed to create ZMQ socket\n");
+        zmq_ctx_term(device->zmq_ctx);
+        return SIMULITH_SPI_ERROR;
     }
-
-    if (!transfer_cb)
-    {
-        simulith_log("Transfer callback cannot be NULL\n");
-        return -1;
+    if (strlen(device->name) > 0) {
+        zmq_setsockopt(device->zmq_sock, ZMQ_IDENTITY, device->name, strlen(device->name));
     }
-
-    spi_bus_t *bus = &spi_buses[bus_id];
-
-    if (bus->initialized)
-    {
-        simulith_log("SPI bus %d already initialized\n", bus_id);
-        return -1;
-    }
-
-    // Initialize bus structure
-    memcpy(&bus->config, config, sizeof(simulith_spi_config_t));
-    bus->transfer_callback = transfer_cb;
-    bus->initialized       = true;
-
-    simulith_log("SPI bus %d initialized: %lu Hz, mode %d, %d bits %s first\n", bus_id, (unsigned long)config->clock_hz,
-                 config->mode, config->data_bits, config->bit_order == SIMULITH_SPI_MSB_FIRST ? "MSB" : "LSB");
-
-    return 0;
-}
-
-int simulith_spi_transfer(uint8_t bus_id, uint8_t cs_id, const uint8_t *tx_data, uint8_t *rx_data, size_t len)
-{
-    if (bus_id >= MAX_SPI_BUSES || !spi_buses[bus_id].initialized)
-    {
-        return -1;
-    }
-
-    if (cs_id >= MAX_SPI_BUSES)
-    {
-        simulith_log("Invalid CS ID: %d\n", cs_id);
-        return -1;
-    }
-
-    if (!tx_data && !rx_data)
-    {
-        simulith_log("At least one of tx_data or rx_data must be non-NULL\n");
-        return -1;
-    }
-
-    if (len == 0)
-    {
-        return 0;
-    }
-
-    spi_bus_t *bus = &spi_buses[bus_id];
-
-    // Log transfer details
-    simulith_log("SPI%d.CS%d transfer: ", bus_id, cs_id);
-    if (tx_data)
-    {
-        simulith_log("TX[");
-        for (size_t i = 0; i < len; i++)
-        {
-            simulith_log("%02X%s", tx_data[i], i < len - 1 ? " " : "");
+    int rc;
+    if (device->is_server) {
+        rc = zmq_bind(device->zmq_sock, device->address);
+        if (rc != 0) {
+            simulith_log("simulith_spi_init: Failed to bind to %s\n", device->address);
+            zmq_close(device->zmq_sock);
+            zmq_ctx_term(device->zmq_ctx);
+            return SIMULITH_SPI_ERROR;
         }
-        simulith_log("] ");
-    }
-
-    // Perform transfer through callback
-    int result = bus->transfer_callback(bus_id, cs_id, tx_data, rx_data, len);
-
-    if (result > 0 && rx_data)
-    {
-        simulith_log("RX[");
-        for (size_t i = 0; i < (size_t) result; i++)
-        {
-            simulith_log("%02X%s", rx_data[i], i < (size_t) result - 1 ? " " : "");
+        simulith_log("simulith_spi_init: Bound to %s as '%s'\n", device->address, device->name);
+    } else {
+        rc = zmq_connect(device->zmq_sock, device->address);
+        if (rc != 0) {
+            simulith_log("simulith_spi_init: Failed to connect to %s\n", device->address);
+            zmq_close(device->zmq_sock);
+            zmq_ctx_term(device->zmq_ctx);
+            return SIMULITH_SPI_ERROR;
         }
-        simulith_log("]");
+        simulith_log("simulith_spi_init: Connected to %s as '%s'\n", device->address, device->name);
     }
-    simulith_log("\n");
-
-    return result;
+    device->init = SIMULITH_SPI_INITIALIZED;
+    return SIMULITH_SPI_SUCCESS;
 }
 
-int simulith_spi_close(uint8_t bus_id)
+int simulith_spi_write(spi_device_t *device, const uint8_t *data, size_t len)
 {
-    if (bus_id >= MAX_SPI_BUSES || !spi_buses[bus_id].initialized)
-    {
-        return -1;
+    if (!device || device->init != SIMULITH_SPI_INITIALIZED) {
+        simulith_log("simulith_spi_write: Uninitialized SPI device\n");
+        return SIMULITH_SPI_ERROR;
     }
+    int rc = zmq_send(device->zmq_sock, data, len, ZMQ_DONTWAIT);
+    if (rc < 0) {
+        simulith_log("simulith_spi_write: zmq_send failed (peer may be unavailable)\n");
+        return SIMULITH_SPI_ERROR;
+    }
+    simulith_log("SPI TX[%s]: %zu bytes\n", device->name, len);
+    return (int)len;
+}
 
-    spi_buses[bus_id].initialized = false;
-    simulith_log("SPI bus %d closed\n", bus_id);
-    return 0;
+int simulith_spi_read(spi_device_t *device, uint8_t *data, size_t len)
+{
+    if (!device || device->init != SIMULITH_SPI_INITIALIZED) {
+        simulith_log("simulith_spi_read: Uninitialized SPI device\n");
+        return SIMULITH_SPI_ERROR;
+    }
+    int rc = zmq_recv(device->zmq_sock, data, len, ZMQ_DONTWAIT);
+    if (rc < 0) {
+        if (zmq_errno() == EAGAIN) {
+            // No data available, non-blocking
+            return 0;
+        }
+        simulith_log("simulith_spi_read: zmq_recv failed (peer may be unavailable)\n");
+        return SIMULITH_SPI_ERROR;
+    }
+    simulith_log("SPI RX[%s]: %d bytes\n", device->name, rc);
+    return rc;
+}
+
+int simulith_spi_transaction(spi_device_t *device, const uint8_t *tx_data, size_t tx_len, uint8_t *rx_data, size_t rx_len)
+{
+    if (!device || device->init != SIMULITH_SPI_INITIALIZED) {
+        simulith_log("simulith_spi_transaction: Uninitialized SPI device\n");
+        return SIMULITH_SPI_ERROR;
+    }
+    
+    // First, perform the write operation
+    int write_result = simulith_spi_write(device, tx_data, tx_len);
+    if (write_result < 0) {
+        simulith_log("simulith_spi_transaction: Write operation failed\n");
+        return SIMULITH_SPI_ERROR;
+    }
+    
+    // Then, perform the read operation
+    int read_result = simulith_spi_read(device, rx_data, rx_len);
+    if (read_result < 0) {
+        simulith_log("simulith_spi_transaction: Read operation failed\n");
+        return SIMULITH_SPI_ERROR;
+    }
+    
+    simulith_log("SPI Transaction[%s]: wrote %d bytes, read %d bytes\n", device->name, write_result, read_result);
+    return SIMULITH_SPI_SUCCESS;
+}
+
+int simulith_spi_close(spi_device_t *device)
+{
+    if (!device || device->init != SIMULITH_SPI_INITIALIZED) {
+        return SIMULITH_SPI_ERROR;
+    }
+    zmq_close(device->zmq_sock);
+    zmq_ctx_term(device->zmq_ctx);
+    device->init = 0;
+    simulith_log("SPI device %s closed\n", device->name);
+    return SIMULITH_SPI_SUCCESS;
 }
