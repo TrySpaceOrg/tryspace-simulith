@@ -5,8 +5,8 @@
 #include <string.h>
 
 #define INVALID_ADDR "invalid://address"
-#define CLIENT_ID   "test_client"
-#define TEST_TIME_S 3            // seconds
+#define CLIENT_ID    "test_client"
+#define TEST_TIME_S  1 // seconds
 
 static int ticks_received = 0;
 
@@ -34,7 +34,7 @@ void *server_thread(void *arg)
 
 void *client_thread(void *arg)
 {
-    sleep(1); // Wait for server to be ready
+    usleep(1000); // Wait for server to be ready
 
     simulith_client_init(LOCAL_PUB_ADDR, LOCAL_REP_ADDR, CLIENT_ID, INTERVAL_NS);
 

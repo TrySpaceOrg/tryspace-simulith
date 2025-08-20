@@ -37,6 +37,7 @@ set(SIMULITH_SOURCES
     src/simulith_i2c.c
     src/simulith_pwm.c
     src/simulith_spi.c
+    src/simulith_transport.c
     src/simulith_uart.c
 )
 
