@@ -54,13 +54,13 @@ void test_transport_init(void)
     /* Last port pair */
     int last = 8 - 1;
     sprintf(transport_a_ports[last].name, "tp%d_a", last);
-    sprintf(transport_a_ports[last].address, "tcp://127.0.0.1:%d", 7000 + last);
+    sprintf(transport_a_ports[last].address, "ipc:///tmp/simulith_pub:%d", 7000 + last);
     transport_a_ports[last].is_server = 1;
     result = simulith_transport_init(&transport_a_ports[last]);
     TEST_ASSERT_EQUAL(SIMULITH_TRANSPORT_SUCCESS, result);
 
     sprintf(transport_b_ports[last].name, "tp%d_b", last);
-    sprintf(transport_b_ports[last].address, "tcp://127.0.0.1:%d", 7000 + last);
+    sprintf(transport_b_ports[last].address, "ipc:///tmp/simulith_pub:%d", 7000 + last);
     transport_b_ports[last].is_server = 0;
     result = simulith_transport_init(&transport_b_ports[last]);
     TEST_ASSERT_EQUAL(SIMULITH_TRANSPORT_SUCCESS, result);
@@ -118,17 +118,17 @@ void test_transport_buffer_overflow(void)
 {
     /* Initialize a pair */
     strcpy(transport_a_ports[2].name, "tp2_a");
-    strcpy(transport_a_ports[2].address, "tcp://127.0.0.1:7002");
+    strcpy(transport_a_ports[2].address, "ipc:///tmp/simulith_pub:7002");
     transport_a_ports[2].is_server = 1;
     TEST_ASSERT_EQUAL(SIMULITH_TRANSPORT_SUCCESS, simulith_transport_init(&transport_a_ports[2]));
 
     strcpy(transport_b_ports[2].name, "tp2_b");
-    strcpy(transport_b_ports[2].address, "tcp://127.0.0.1:7002");
+    strcpy(transport_b_ports[2].address, "ipc:///tmp/simulith_pub:7002");
     transport_b_ports[2].is_server = 0;
     TEST_ASSERT_EQUAL(SIMULITH_TRANSPORT_SUCCESS, simulith_transport_init(&transport_b_ports[2]));
 
-    /* Big payload larger than rx buffer (1024) */
-    size_t big = 2048;
+    /* Big payload larger than rx buffer */
+    size_t big = SIMULITH_TRANSPORT_BUFFER_SIZE + 100;
     uint8_t *bigbuf = malloc(big);
     TEST_ASSERT_NOT_NULL(bigbuf);
     memset(bigbuf, 0xFF, big);
@@ -162,12 +162,12 @@ void test_transport_multiple_messages(void)
 {
     /* Initialize a pair */
     strcpy(transport_a_ports[3].name, "tp3_a");
-    strcpy(transport_a_ports[3].address, "tcp://127.0.0.1:7003");
+    strcpy(transport_a_ports[3].address, "ipc:///tmp/simulith_pub:7003");
     transport_a_ports[3].is_server = 1;
     TEST_ASSERT_EQUAL(SIMULITH_TRANSPORT_SUCCESS, simulith_transport_init(&transport_a_ports[3]));
 
     strcpy(transport_b_ports[3].name, "tp3_b");
-    strcpy(transport_b_ports[3].address, "tcp://127.0.0.1:7003");
+    strcpy(transport_b_ports[3].address, "ipc:///tmp/simulith_pub:7003");
     transport_b_ports[3].is_server = 0;
     TEST_ASSERT_EQUAL(SIMULITH_TRANSPORT_SUCCESS, simulith_transport_init(&transport_b_ports[3]));
 
@@ -199,12 +199,12 @@ void test_transport_partial_receive(void)
 {
     /* Initialize a pair */
     strcpy(transport_a_ports[4].name, "tp4_a");
-    strcpy(transport_a_ports[4].address, "tcp://127.0.0.1:7004");
+    strcpy(transport_a_ports[4].address, "ipc:///tmp/simulith_pub:7004");
     transport_a_ports[4].is_server = 1;
     TEST_ASSERT_EQUAL(SIMULITH_TRANSPORT_SUCCESS, simulith_transport_init(&transport_a_ports[4]));
 
     strcpy(transport_b_ports[4].name, "tp4_b");
-    strcpy(transport_b_ports[4].address, "tcp://127.0.0.1:7004");
+    strcpy(transport_b_ports[4].address, "ipc:///tmp/simulith_pub:7004");
     transport_b_ports[4].is_server = 0;
     TEST_ASSERT_EQUAL(SIMULITH_TRANSPORT_SUCCESS, simulith_transport_init(&transport_b_ports[4]));
 
@@ -245,7 +245,7 @@ void test_transport_flush(void)
 {
     transport_port_t a = {0};
     strcpy(a.name, "flush_a");
-    strcpy(a.address, "tcp://127.0.0.1:7010");
+    strcpy(a.address, "ipc:///tmp/simulith_pub:7010");
     a.is_server = 1;
     TEST_ASSERT_EQUAL(SIMULITH_TRANSPORT_SUCCESS, simulith_transport_init(&a));
     TEST_ASSERT_EQUAL(SIMULITH_TRANSPORT_SUCCESS, simulith_transport_flush(&a));

@@ -61,7 +61,7 @@ int simulith_transport_send(transport_port_t *port, const uint8_t *data, size_t 
         simulith_log("simulith_transport_send: zmq_send failed (peer may be unavailable)\n");
         return SIMULITH_TRANSPORT_ERROR;
     }
-    simulith_log("TRANSPORT TX[%s]: %zu bytes\n", port->name, len);
+    simulith_log("  TX[%s]: %zu bytes\n", port->name, len);
     return (int)len;
 }
 
@@ -82,7 +82,7 @@ int simulith_transport_receive(transport_port_t *port, uint8_t *data, size_t max
         memmove(port->rx_buf, port->rx_buf + to_copy, port->rx_buf_len - to_copy);
     }
     port->rx_buf_len -= to_copy;
-    simulith_log("TRANSPORT RX[%s]: %zu bytes (from buffer)\n", port->name, to_copy);
+    simulith_log("  RX[%s]: %zu bytes (from buffer)\n", port->name, to_copy);
     return (int)to_copy;
 }
 
@@ -105,14 +105,14 @@ int simulith_transport_available(transport_port_t *port)
         if (size > 0) {
             size_t space = sizeof(port->rx_buf) - port->rx_buf_len;
             if ((size_t)size > space) {
-                simulith_log("TRANSPORT RX[%s]: Buffer overflow, dropping %d bytes\n", port->name, size);
+                simulith_log("  RX[%s]: Buffer overflow, dropping %d bytes\n", port->name, size);
                 zmq_msg_close(&msg);
                 return 0;
             }
             memcpy(port->rx_buf + port->rx_buf_len, zmq_msg_data(&msg), size);
             port->rx_buf_len += size;
             zmq_msg_close(&msg);
-            simulith_log("TRANSPORT RX[%s]: %d bytes buffered\n", port->name, size);
+            simulith_log("  RX[%s]: %d bytes buffered\n", port->name, size);
             return 1;
         }
         zmq_msg_close(&msg);
