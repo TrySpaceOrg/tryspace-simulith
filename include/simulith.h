@@ -13,25 +13,25 @@
 #include <zmq.h>
 
 // Include interface headers
-#include "simulith_can.h"
-#include "simulith_gpio.h"
-#include "simulith_i2c.h"
-#include "simulith_pwm.h"
-#include "simulith_spi.h"
+#include "simulith_transport.h"
 #include "simulith_time.h"
-#include "simulith_uart.h"
 
 // Defines
-#define SERVER_PUB_ADDR "tcp://0.0.0.0:5000"
-#define SERVER_REP_ADDR "tcp://0.0.0.0:5001"
+#define SERVER_PUB_ADDR "tcp://0.0.0.0:50000"
+#define SERVER_REP_ADDR "tcp://0.0.0.0:50001"
 
-#define CLIENT_PUB_ADDR "tcp://tryspace-server:5000"
-#define CLIENT_REP_ADDR "tcp://tryspace-server:5001"
+#define CLIENT_PUB_ADDR "tcp://tryspace-server:50000"
+#define CLIENT_REP_ADDR "tcp://tryspace-server:50001"
 
-#define LOCAL_PUB_ADDR  "ipc:///tmp/simulith_pub"
-#define LOCAL_REP_ADDR  "ipc:///tmp/simulith_rep"
+#define LOCAL_PUB_ADDR  "ipc:///tmp/simulith_pub:50000"
+#define LOCAL_REP_ADDR  "ipc:///tmp/simulith_rep:50001"
 
 #define INTERVAL_NS 10000000UL // 10ms tick interval
+
+#define SIMULITH_UART_BASE_PORT 51000
+#define SIMULITH_I2C_BASE_PORT  52000
+#define SIMULITH_SPI_BASE_PORT  53000
+#define SIMULITH_GPIO_BASE_PORT 54000
 
 #ifdef __cplusplus
 extern "C"

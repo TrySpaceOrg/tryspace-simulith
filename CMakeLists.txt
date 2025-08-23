@@ -32,12 +32,7 @@ set(SIMULITH_SOURCES
     src/simulith_client.c
     src/simulith_server.c
     src/simulith_time.c
-    src/simulith_can.c
-    src/simulith_gpio.c
-    src/simulith_i2c.c
-    src/simulith_pwm.c
-    src/simulith_spi.c
-    src/simulith_uart.c
+    src/simulith_transport.c
 )
 
 # Build Simulith static library with -fPIC, used by HWLIB
@@ -117,6 +112,11 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
         -Wno-misleading-indentation
         -Wno-redundant-decls     # Fix atanh redeclaration issue
         -Wno-strict-prototypes   # Fix prototype warnings
+        -Wno-switch-default      # Relax switch default case warnings
+        -Wno-float-equal         # Relax floating-point equality warnings
+        -Wno-strict-overflow     # Relax strict overflow warnings
+        -Wno-implicit-fallthrough # Relax implicit fallthrough warnings
+        -Wno-sign-compare           # Relax signed/unsigned comparison warnings
         -Wno-error  # Turn off -Werror for 42
     )
 endif()
