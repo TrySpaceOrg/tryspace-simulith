@@ -1,3 +1,14 @@
+#include <math.h>
+// Helper to normalize a 3-element vector (C style)
+static void normalize_vec3(double v[3]) {
+    double mag = sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]);
+    if (mag > 1e-12) {
+        v[0] /= mag;
+        v[1] /= mag;
+        v[2] /= mag;
+    }
+}
+#include <math.h>
 /* * Simulith Director
  * This is the main entry point for the Simulith simulation framework
  *  Configuration Management
@@ -26,6 +37,17 @@
 #include <errno.h>
 #include <unistd.h>  // For access() function
 #include <string.h>  // For strcmp() function
+
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <stdlib.h>
+
+// UDP publisher config
+#define UDP_PUBLISH_INTERVAL_TICKS 10 // Default: publish every 10 ticks (assuming 100ms tick = 1s)
+static int g_udp_sock = -1;
+static struct sockaddr_in g_udp_addr;
+static int g_udp_publish_counter = 0;
 
 // Include 42 headers for accessing spacecraft data
 #ifdef __cplusplus
@@ -312,13 +334,18 @@ void populate_42_context(simulith_42_context_t* context)
         context->vel_r[i] = spacecraft->VelR[i];
     }
     
-    // Copy environmental vectors
+    // Copy and normalize environmental vectors
     for (int i = 0; i < 3; i++) {
         context->sun_vector_body[i] = spacecraft->svb[i];
         context->mag_field_body[i] = spacecraft->bvb[i];
         context->sun_vector_inertial[i] = spacecraft->svn[i];
         context->mag_field_inertial[i] = spacecraft->bvn[i];
     }
+    // Normalize all vectors that should be unit vectors
+    normalize_vec3(context->sun_vector_body);
+    normalize_vec3(context->sun_vector_inertial);
+    normalize_vec3(context->mag_field_body);
+    normalize_vec3(context->mag_field_inertial);
     
     // Copy spacecraft properties
     context->mass = spacecraft->mass;
@@ -527,6 +554,50 @@ void on_tick(uint64_t tick_time_ns)
             printf("42 simulation step failed\n");
         }
     }
+
+    // --- UDP Telemetry Publisher ---
+    g_udp_publish_counter = (g_udp_publish_counter + 1) % UDP_PUBLISH_INTERVAL_TICKS;
+    if (g_udp_sock >= 0 && context_42.valid && g_udp_publish_counter == 0)
+    {
+        // Log DYN_TIME for debugging
+        printf("DYN_TIME: %.6f, ECLIPSE: %d\n", context_42.dyn_time, context_42.eclipse);
+
+        // Packet structure matches XTCE SIM_42_TRUTH_DATA:
+        // DYN_TIME, POSITION_N_1/2/3, SVB_1/2/3, BVB_1/2/3, HVB_1/2/3, WN_1/2/3, QN_1/2/3/4, MASS, CM_1/2/3, INERTIA_11/12/13/21/22/23/31/32/33, ECLIPSE, ATMO_DENSITY
+        unsigned char packet[276]; // Exact size: 34 doubles (8 bytes each) + 1 int (4 bytes) = 276 bytes
+        memset(packet, 0, sizeof(packet));
+        int offset = 0;
+        // 1. DYN_TIME
+        double d_dyn_time = context_42.dyn_time;
+        memcpy(packet+offset, &d_dyn_time, sizeof(double)); offset += sizeof(double);
+        // 2-4. POSITION_N_1/2/3
+        for (int i = 0; i < 3; i++) { double d = context_42.pos_n[i]; memcpy(packet+offset, &d, sizeof(double)); offset += sizeof(double); }
+        // 5-7. SVB_1/2/3
+        for (int i = 0; i < 3; i++) { double d = context_42.sun_vector_body[i]; memcpy(packet+offset, &d, sizeof(double)); offset += sizeof(double); }
+        // 8-10. BVB_1/2/3
+        for (int i = 0; i < 3; i++) { double d = context_42.mag_field_body[i]; memcpy(packet+offset, &d, sizeof(double)); offset += sizeof(double); }
+        // 11-13. HVB_1/2/3
+        for (int i = 0; i < 3; i++) { double d = context_42.hvb[i]; memcpy(packet+offset, &d, sizeof(double)); offset += sizeof(double); }
+        // 14-16. WN_1/2/3
+        for (int i = 0; i < 3; i++) { double d = context_42.wn[i]; memcpy(packet+offset, &d, sizeof(double)); offset += sizeof(double); }
+        // 17-20. QN_1/2/3/4
+        for (int i = 0; i < 4; i++) { double d = context_42.qn[i]; memcpy(packet+offset, &d, sizeof(double)); offset += sizeof(double); }
+        // 21. MASS
+        double d_mass = context_42.mass;
+        memcpy(packet+offset, &d_mass, sizeof(double)); offset += sizeof(double);
+        // 22-24. CM_1/2/3
+        for (int i = 0; i < 3; i++) { double d = context_42.cm[i]; memcpy(packet+offset, &d, sizeof(double)); offset += sizeof(double); }
+        // 25-33. INERTIA_11/12/13/21/22/23/31/32/33
+        for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++) { double d = context_42.inertia[i][j]; memcpy(packet+offset, &d, sizeof(double)); offset += sizeof(double); }
+        // 34. ECLIPSE (int)
+        int ecl = context_42.eclipse;
+        memcpy(packet+offset, &ecl, sizeof(int)); offset += sizeof(int);
+        // 35. ATMO_DENSITY
+        double d_atmo_density = context_42.atmo_density;
+        memcpy(packet+offset, &d_atmo_density, sizeof(double)); offset += sizeof(double);
+        // Send exactly 276 bytes
+        sendto(g_udp_sock, packet, 276, 0, (struct sockaddr*)&g_udp_addr, sizeof(g_udp_addr));
+    }
 }
 
 int main(int argc, char *argv[]) 
@@ -564,6 +635,32 @@ int main(int argc, char *argv[])
         fprintf(stderr, "Warning: 42 simulation initialization had issues, continuing without it\n");
         g_director_config.enable_42 = 0;
         g_director_config.fortytwo_initialized = 0;
+    }
+
+    // UDP Telemetry Socket Init
+    g_udp_sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (g_udp_sock < 0) 
+    {
+        perror("UDP socket creation failed");
+    } 
+    else 
+    {
+        memset(&g_udp_addr, 0, sizeof(g_udp_addr));
+        g_udp_addr.sin_family = AF_INET;
+        g_udp_addr.sin_port = htons(50042); // Default port for 42 telemetry
+
+        // Resolve tryspace-gsw hostname
+        const char* gsw_hostname = "tryspace-gsw";
+        struct hostent* gsw_host = gethostbyname(gsw_hostname);
+        if (gsw_host && gsw_host->h_addrtype == AF_INET) {
+            memcpy(&g_udp_addr.sin_addr, gsw_host->h_addr_list[0], gsw_host->h_length);
+            char ip_str[INET_ADDRSTRLEN];
+            inet_ntop(AF_INET, &g_udp_addr.sin_addr, ip_str, sizeof(ip_str));
+            printf("UDP telemetry publisher initialized for YAMCS at %s:50042\n", ip_str);
+        } else {
+            printf("Warning: Could not resolve hostname '%s', defaulting to 127.0.0.1\n", gsw_hostname);
+            g_udp_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+        }
     }
 
     // Wait a second for the Simulith server to start up
