@@ -559,9 +559,6 @@ void on_tick(uint64_t tick_time_ns)
     g_udp_publish_counter = (g_udp_publish_counter + 1) % UDP_PUBLISH_INTERVAL_TICKS;
     if (g_udp_sock >= 0 && context_42.valid && g_udp_publish_counter == 0)
     {
-        // Log DYN_TIME for debugging
-        printf("DYN_TIME: %.6f, ECLIPSE: %d\n", context_42.dyn_time, context_42.eclipse);
-
         // Packet structure matches XTCE SIM_42_TRUTH_DATA:
         // DYN_TIME, POSITION_N_1/2/3, SVB_1/2/3, BVB_1/2/3, HVB_1/2/3, WN_1/2/3, QN_1/2/3/4, MASS, CM_1/2/3, INERTIA_11/12/13/21/22/23/31/32/33, ECLIPSE, ATMO_DENSITY
         unsigned char packet[276]; // Exact size: 34 doubles (8 bytes each) + 1 int (4 bytes) = 276 bytes
