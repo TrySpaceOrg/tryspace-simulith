@@ -32,6 +32,7 @@ typedef struct {
     double mag_field_body[3];   // Magnetic field [Tesla] in body frame
     double sun_vector_inertial[3]; // Sun-pointing unit vector in inertial frame
     double mag_field_inertial[3];  // Magnetic field [Tesla] in inertial frame
+    double hvb[3]; // Angular Momentum Vector in Body Frame (Nms)
     
     // Spacecraft properties
     double mass;             // Total spacecraft mass [kg]
