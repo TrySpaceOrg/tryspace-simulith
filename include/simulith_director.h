@@ -1,18 +1,22 @@
 #ifndef SIMULITH_DIRECTOR_H
 #define SIMULITH_DIRECTOR_H
 
-#include <stdio.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
+#include <arpa/inet.h>
 #include <dlfcn.h>
 #include <dirent.h>
+#include <errno.h>
+#include <math.h>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
+#include <string.h>  // For strcmp() function
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <unistd.h>  // For access() function
 
 #include "simulith_component.h"
-
-// Include 42 headers for integration
 #include "42.h"
 
 #ifdef __cplusplus
@@ -64,19 +68,6 @@ typedef struct
  * @return 0 on success, -1 on error
  */
 int parse_args(int argc, char *argv[], director_config_t *config);
-
-/**
- * Load configuration from file
- * @param config_file Path to configuration file
- * @return 0 on success, -1 on error
- */
-int load_configuration(const char *config_file);
-
-/**
- * Initialize Simulith connection
- * @return 0 on success, -1 on error
- */
-int initialize_simulith_connection(void);
 
 /**
  * Load components from shared libraries

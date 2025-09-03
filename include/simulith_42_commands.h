@@ -13,6 +13,7 @@ typedef enum {
     SIMULITH_42_CMD_MTB_TORQUE,      // Magnetic torquer bar command
     SIMULITH_42_CMD_WHEEL_TORQUE,    // Reaction wheel command
     SIMULITH_42_CMD_THRUSTER,        // Thruster command
+    SIMULITH_42_CMD_SET_MODE,        // Set FSW/ADCS mode
     SIMULITH_42_CMD_COUNT
 } simulith_42_cmd_type_t;
 
@@ -45,6 +46,18 @@ typedef struct {
         simulith_42_mtb_cmd_t mtb;
         simulith_42_wheel_cmd_t wheel;
         simulith_42_thruster_cmd_t thruster;
+        // Extended SET_MODE payload allowing optional targets
+        struct {
+            int mode;           // mode value for SIMULITH_42_CMD_SET_MODE
+            int parm;           // PARM_VECTORS or PARM_QUATERNION (optional)
+            int frame;          // FRAME_N / FRAME_L etc. (optional)
+            double qrn[4];      // quaternion target when parm==PARM_QUATERNION
+            double priW[3];     // primary vector (when parm==PARM_VECTORS)
+            double secW[3];     // secondary vector (when parm==PARM_VECTORS)
+            int have_pri;       // 1 if priW is valid
+            int have_sec;       // 1 if secW is valid
+            int have_qrn;       // 1 if qrn is valid
+        } setmode;
     } cmd;
     
     int valid;               // 1 if command is valid, 0 otherwise
@@ -64,6 +77,17 @@ typedef struct {
 int simulith_42_send_mtb_command(int spacecraft_id, const double dipole[3], int enable_mask);
 int simulith_42_send_wheel_command(int spacecraft_id, const double torque[4], int enable_mask);
 int simulith_42_send_thruster_command(int spacecraft_id, const double thrust[3], const double torque[3], int enable_mask);
+// Set FSW/ADCS mode on a 42 spacecraft (producer-friendly helper)
+// Set FSW/ADCS mode on a 42 spacecraft (producer-friendly helper)
+// If `extra` is non-NULL, its fields will be copied into the queued command so
+// the director can apply explicit target vectors or quaternions.
+int simulith_42_send_set_mode(int spacecraft_id, int mode, const void* extra);
+
+// Lower-level command queue accessors (implemented in simulith_42_command_api.c)
+// Components normally call the simulith_42_send_* helpers above; these are
+// provided for advanced use or diagnostics.
+int enqueue_command(const simulith_42_command_t* cmd);
+int dequeue_command(simulith_42_command_t* cmd);
 
 #ifdef __cplusplus
 }

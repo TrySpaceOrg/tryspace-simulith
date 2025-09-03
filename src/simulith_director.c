@@ -1,14 +1,4 @@
-#include <math.h>
-// Helper to normalize a 3-element vector (C style)
-static void normalize_vec3(double v[3]) {
-    double mag = sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]);
-    if (mag > 1e-12) {
-        v[0] /= mag;
-        v[1] /= mag;
-        v[2] /= mag;
-    }
-}
-#include <math.h>
+
 /* * Simulith Director
  * This is the main entry point for the Simulith simulation framework
  *  Configuration Management
@@ -34,14 +24,6 @@ static void normalize_vec3(double v[3]) {
 #include "simulith_director.h"
 #include "simulith_42_context.h"
 #include "simulith_42_commands.h"
-#include <errno.h>
-#include <unistd.h>  // For access() function
-#include <string.h>  // For strcmp() function
-
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <stdlib.h>
 
 // UDP publisher config
 #define UDP_PUBLISH_INTERVAL_TICKS 10 // Default: publish every 10 ticks (assuming 100ms tick = 1s)
@@ -61,8 +43,15 @@ extern "C" {
 // Global director config for callback access
 director_config_t g_director_config;
 
-// Global command queue for 42 commands
-static simulith_42_cmd_queue_t g_command_queue = {0};
+// Helper to normalize a 3-element vector (C style)
+static void normalize_vec3(double v[3]) {
+    double mag = sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]);
+    if (mag > 1e-12) {
+        v[0] /= mag;
+        v[1] /= mag;
+        v[2] /= mag;
+    }
+}
 
 int parse_args(int argc, char *argv[], director_config_t *config) 
 {
@@ -96,20 +85,6 @@ int parse_args(int argc, char *argv[], director_config_t *config)
         }
     }
     
-    return 0;
-}
-
-int load_configuration(const char *config_file) 
-{
-    printf("Loading configuration from: %s\n", config_file);
-    // TODO: Load and parse configuration file
-    return 0;
-}
-
-int initialize_simulith_connection() 
-{
-    printf("Initializing Simulith connection...\n");
-    // TODO: Connect to Simulith server
     return 0;
 }
 
@@ -341,6 +316,10 @@ void populate_42_context(simulith_42_context_t* context)
         context->sun_vector_inertial[i] = spacecraft->svn[i];
         context->mag_field_inertial[i] = spacecraft->bvn[i];
     }
+    // Ensure hvb is zero-initialized if 42 didn't populate it
+    for (int i = 0; i < 3; i++) {
+        context->hvb[i] = 0.0;
+    }
     // Normalize all vectors that should be unit vectors
     normalize_vec3(context->sun_vector_body);
     normalize_vec3(context->sun_vector_inertial);
@@ -370,79 +349,6 @@ void populate_42_context(simulith_42_context_t* context)
     context->valid = 1;
 }
 
-// Command Queue Functions
-static int enqueue_command(const simulith_42_command_t* cmd)
-{
-    if (g_command_queue.count >= SIMULITH_42_CMD_QUEUE_SIZE) {
-        printf("Warning: 42 command queue full, dropping command\n");
-        return -1;
-    }
-    
-    g_command_queue.commands[g_command_queue.head] = *cmd;
-    g_command_queue.head = (g_command_queue.head + 1) % SIMULITH_42_CMD_QUEUE_SIZE;
-    g_command_queue.count++;
-    return 0;
-}
-
-static int dequeue_command(simulith_42_command_t* cmd)
-{
-    if (g_command_queue.count == 0) {
-        return -1; // Queue empty
-    }
-    
-    *cmd = g_command_queue.commands[g_command_queue.tail];
-    g_command_queue.tail = (g_command_queue.tail + 1) % SIMULITH_42_CMD_QUEUE_SIZE;
-    g_command_queue.count--;
-    return 0;
-}
-
-// Command Interface Functions (called by simulators)
-int simulith_42_send_mtb_command(int spacecraft_id, const double dipole[3], int enable_mask)
-{
-    simulith_42_command_t cmd = {0};
-    cmd.type = SIMULITH_42_CMD_MTB_TORQUE;
-    cmd.spacecraft_id = spacecraft_id;
-    cmd.valid = 1;
-    
-    for (int i = 0; i < 3; i++) {
-        cmd.cmd.mtb.dipole[i] = dipole[i];
-    }
-    cmd.cmd.mtb.enable_mask = enable_mask;
-    
-    return enqueue_command(&cmd);
-}
-
-int simulith_42_send_wheel_command(int spacecraft_id, const double torque[4], int enable_mask)
-{
-    simulith_42_command_t cmd = {0};
-    cmd.type = SIMULITH_42_CMD_WHEEL_TORQUE;
-    cmd.spacecraft_id = spacecraft_id;
-    cmd.valid = 1;
-    
-    for (int i = 0; i < 4; i++) {
-        cmd.cmd.wheel.torque[i] = torque[i];
-    }
-    cmd.cmd.wheel.enable_mask = enable_mask;
-    
-    return enqueue_command(&cmd);
-}
-
-int simulith_42_send_thruster_command(int spacecraft_id, const double thrust[3], const double torque[3], int enable_mask)
-{
-    simulith_42_command_t cmd = {0};
-    cmd.type = SIMULITH_42_CMD_THRUSTER;
-    cmd.spacecraft_id = spacecraft_id;
-    cmd.valid = 1;
-    
-    for (int i = 0; i < 3; i++) {
-        cmd.cmd.thruster.thrust[i] = thrust[i];
-        cmd.cmd.thruster.torque[i] = torque[i];
-    }
-    cmd.cmd.thruster.enable_mask = enable_mask;
-    
-    return enqueue_command(&cmd);
-}
-
 // Process commands and apply them to 42
 static void process_42_commands(void)
 {
@@ -451,13 +357,22 @@ static void process_42_commands(void)
     extern struct SCType *SC;
     
     if (!g_director_config.enable_42 || !g_director_config.fortytwo_initialized || !SC) {
+        printf("simulith: process_42_commands skipped (enable_42=%d fortytwo_initialized=%d SC=%p)\n",
+               g_director_config.enable_42, g_director_config.fortytwo_initialized, (void*)SC);
         return;
     }
     
     // Process all queued commands
+    //printf("simulith: processing queued commands (Nsc=%ld SC0.Exists=%ld)\n", Nsc, SC[0].Exists);
     while (dequeue_command(&cmd) == 0) {
         if (!cmd.valid || cmd.spacecraft_id >= Nsc || !SC[cmd.spacecraft_id].Exists) {
+            if (g_director_config.verbose) {
+                printf("simulith: dequeued invalid/ignored command: type=%d sc=%d valid=%d\n", cmd.type, cmd.spacecraft_id, cmd.valid);
+            }
             continue;
+        }
+        if (g_director_config.verbose) {
+            printf("simulith: dequeued command: type=%d sc=%d\n", cmd.type, cmd.spacecraft_id);
         }
         
         struct SCType *spacecraft = &SC[cmd.spacecraft_id];
@@ -606,11 +521,6 @@ int main(int argc, char *argv[])
         return 0;  // Help was shown or parsing failed
     } else if (parse_result > 0) {
         fprintf(stderr, "Failed to parse arguments\n");
-        return 1;
-    }
-    
-    if (load_configuration(g_director_config.config_file) != 0) {
-        fprintf(stderr, "Failed to load configuration\n");
         return 1;
     }
 
