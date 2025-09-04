@@ -28,6 +28,7 @@ endif()
 
 # Simulith library sources
 set(SIMULITH_SOURCES
+    src/simulith_42_command_api.c
     src/simulith_common.c
     src/simulith_client.c
     src/simulith_server.c
@@ -35,8 +36,8 @@ set(SIMULITH_SOURCES
     src/simulith_transport.c
 )
 
-# Build Simulith static library with -fPIC, used by HWLIB
-add_library(simulith STATIC ${SIMULITH_SOURCES})
+# Build Simulith as a shared library so director and dynamic components share symbols
+add_library(simulith SHARED ${SIMULITH_SOURCES})
 set_target_properties(simulith PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(simulith PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -124,6 +125,10 @@ endif()
 # Build Simulith director (dynamically loads components)
 add_executable(simulith_director_standalone src/simulith_director.c)
 target_link_libraries(simulith_director_standalone PRIVATE simulith fortytwo ${ZeroMQ_LIBRARIES} dl m)
+set_target_properties(simulith_director_standalone PROPERTIES
+    BUILD_RPATH "$ORIGIN"
+    INSTALL_RPATH "$ORIGIN"
+)
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     # Handle warnings for director due to 42 integration
     target_compile_options(simulith_director_standalone PRIVATE 
@@ -139,6 +144,10 @@ add_executable(simulith_server_standalone
     src/simulith_server.c
     src/simulith_server_standalone.c)
 target_link_libraries(simulith_server_standalone PRIVATE simulith ${ZeroMQ_LIBRARIES})
+set_target_properties(simulith_server_standalone PROPERTIES
+    BUILD_RPATH "$ORIGIN"
+    INSTALL_RPATH "$ORIGIN"
+)
 
 
 # Optionally add tests subdirectory
