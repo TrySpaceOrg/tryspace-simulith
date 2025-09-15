@@ -28,21 +28,6 @@ int enqueue_command(const simulith_42_command_t* cmd)
     if (cmd) {
         if (cmd->type == SIMULITH_42_CMD_SET_MODE) {
             fprintf(stdout, "simulith: SET_MODE sc=%d mode=%d\n", cmd->spacecraft_id, cmd->cmd.setmode.mode);
-        } else if (cmd->type == SIMULITH_42_CMD_WHEEL_TORQUE) {
-            // Only print wheel commands occasionally to reduce spam
-            static int wheel_print_counter = 0;
-            if (++wheel_print_counter % 50 == 0) {
-                fprintf(stdout, "simulith: WHEEL_TORQUE sc=%d [%.6f %.6f %.6f %.6f]\n", 
-                       cmd->spacecraft_id, cmd->cmd.wheel.torque[0], cmd->cmd.wheel.torque[1], 
-                       cmd->cmd.wheel.torque[2], cmd->cmd.wheel.torque[3]);
-            }
-        } else if (cmd->type == SIMULITH_42_CMD_MTB_TORQUE) {
-            // Only print MTB commands occasionally to reduce spam
-            static int mtb_print_counter = 0;
-            if (++mtb_print_counter % 50 == 0) {
-                fprintf(stdout, "simulith: MTB_TORQUE sc=%d [%.6f %.6f %.6f]\n", 
-                       cmd->spacecraft_id, cmd->cmd.mtb.dipole[0], cmd->cmd.mtb.dipole[1], cmd->cmd.mtb.dipole[2]);
-            }
         }
     }
     return 0;
