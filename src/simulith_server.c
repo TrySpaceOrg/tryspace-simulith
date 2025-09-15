@@ -108,13 +108,13 @@ static void broadcast_time(void)
         // Calculate actual speed (sim seconds per real second)
         struct timespec now_ts;
         clock_gettime(CLOCK_MONOTONIC, &now_ts);
-        uint64_t now_real_ns = (uint64_t)now_ts.tv_sec * 1000000000ULL + now_ts.tv_nsec;
-        double sim_elapsed = (current_time_ns - last_log_time) / 1e9;
-        double real_elapsed = (g_last_log_real_ns > 0) ? ((now_real_ns - g_last_log_real_ns) / 1e9) : 0.0;
+    uint64_t now_real_ns = (uint64_t)now_ts.tv_sec * 1000000000ULL + (uint64_t)now_ts.tv_nsec;
+    double sim_elapsed = (double)(current_time_ns - last_log_time) / 1e9;
+    double real_elapsed = (g_last_log_real_ns > 0) ? ((double)(now_real_ns - g_last_log_real_ns) / 1e9) : 0.0;
         double actual_speed = (real_elapsed > 0.0) ? (sim_elapsed / real_elapsed) : 0.0;
 
         simulith_log("  Simulation time: %.3f seconds | Attempted speed: %.2fx | Actual: %.2fx\n",
-            current_time_ns / 1e9, g_attempted_speed, actual_speed);
+            (double)current_time_ns / 1e9, g_attempted_speed, actual_speed);
 
         last_log_time = current_time_ns;
         g_last_log_real_ns = now_real_ns;
@@ -360,7 +360,10 @@ void simulith_server_run(void)
             if (speed > 0.0) 
             {
                 clock_gettime(CLOCK_MONOTONIC, &end_ts);
-                uint64_t elapsed_ns = (end_ts.tv_sec - start_ts.tv_sec) * 1000000000ULL + (end_ts.tv_nsec - start_ts.tv_nsec);
+                /* Use signed 64-bit for intermediate differences to avoid sign-conversion warnings */
+                int64_t sec_diff = (int64_t)end_ts.tv_sec - (int64_t)start_ts.tv_sec;
+                int64_t nsec_diff = (int64_t)end_ts.tv_nsec - (int64_t)start_ts.tv_nsec;
+                uint64_t elapsed_ns = (uint64_t)(sec_diff * 1000000000LL + nsec_diff);
                 uint64_t target_ns = (uint64_t)((double)tick_interval_ns / speed);
                 
                 if (elapsed_ns < target_ns) 
@@ -378,13 +381,13 @@ void simulith_server_run(void)
                         clock_gettime(CLOCK_MONOTONIC, &start_wait);
                         do {
                             clock_gettime(CLOCK_MONOTONIC, &now_wait);
-                        } while ((now_wait.tv_sec - start_wait.tv_sec) * 1000000000ULL + 
-                                (now_wait.tv_nsec - start_wait.tv_nsec) < sleep_ns);
+                        } while (((int64_t)now_wait.tv_sec - (int64_t)start_wait.tv_sec) * 1000000000LL +
+                                ((int64_t)now_wait.tv_nsec - (int64_t)start_wait.tv_nsec) < (int64_t)sleep_ns);
                     } else {
                         // Normal nanosleep for lower speeds
                         struct timespec ts;
-                        ts.tv_sec = sleep_ns / 1000000000ULL;
-                        ts.tv_nsec = sleep_ns % 1000000000ULL;
+                        ts.tv_sec = (time_t)(sleep_ns / 1000000000ULL);
+                        ts.tv_nsec = (long)(sleep_ns % 1000000000ULL);
                         nanosleep(&ts, NULL);
                     }
                 }
