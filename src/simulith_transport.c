@@ -101,18 +101,19 @@ int simulith_transport_available(transport_port_t *port)
     if (rc > 0 && (items[0].revents & ZMQ_POLLIN)) {
         zmq_msg_t msg;
         zmq_msg_init(&msg);
-        int size = zmq_msg_recv(&msg, port->zmq_sock, ZMQ_DONTWAIT);
-        if (size > 0) {
+        int rcv_size = zmq_msg_recv(&msg, port->zmq_sock, ZMQ_DONTWAIT);
+        if (rcv_size > 0) {
+            size_t size = (size_t)rcv_size;
             size_t space = sizeof(port->rx_buf) - port->rx_buf_len;
-            if ((size_t)size > space) {
-                simulith_log("  RX[%s]: Buffer overflow, dropping %d bytes\n", port->name, size);
+            if (size > space) {
+                simulith_log("  RX[%s]: Buffer overflow, dropping %zu bytes\n", port->name, size);
                 zmq_msg_close(&msg);
                 return 0;
             }
             memcpy(port->rx_buf + port->rx_buf_len, zmq_msg_data(&msg), size);
             port->rx_buf_len += size;
             zmq_msg_close(&msg);
-            simulith_log("  RX[%s]: %d bytes buffered\n", port->name, size);
+            simulith_log("  RX[%s]: %zu bytes buffered\n", port->name, size);
             return 1;
         }
         zmq_msg_close(&msg);

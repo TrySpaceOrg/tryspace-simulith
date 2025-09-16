@@ -31,15 +31,6 @@ static int g_udp_sock = -1;
 static struct sockaddr_in g_udp_addr;
 static int g_udp_publish_counter = 0;
 
-// Include 42 headers for accessing spacecraft data
-#ifdef __cplusplus
-extern "C" {
-#endif
-#include "42.h"
-#ifdef __cplusplus
-}
-#endif
-
 // Global director config for callback access
 director_config_t g_director_config;
 
@@ -134,15 +125,12 @@ int load_components(director_config_t* config)
             config->lib_handles[config->lib_count++] = lib_handle;
         }
         
-        // Get the component interface function
-        typedef const component_interface_t* (*get_component_interface_fn)(void);
-        
         // Use union to safely convert between object and function pointers
         union {
             void* obj;
             get_component_interface_fn func;
         } symbol_cast;
-        
+
         symbol_cast.obj = dlsym(lib_handle, "get_component_interface");
         get_component_interface_fn get_interface = symbol_cast.func;
         
@@ -263,7 +251,7 @@ void cleanup_components(director_config_t* config)
     config->lib_count = 0;
 }
 
-void populate_42_context(simulith_42_context_t* context)
+static void populate_42_context(simulith_42_context_t* context)
 {
     // Initialize context
     memset(context, 0, sizeof(simulith_42_context_t));
@@ -335,15 +323,15 @@ void populate_42_context(simulith_42_context_t* context)
         }
     }
     
-    // Environmental conditions
-    context->eclipse = spacecraft->Eclipse;
+    // Environmental conditions (cast from 42's long types to our ints)
+    context->eclipse = (int)spacecraft->Eclipse;
     context->atmo_density = spacecraft->AtmoDensity;
-    
+
     // Spacecraft identification
-    context->spacecraft_id = spacecraft->ID;
-    context->exists = spacecraft->Exists;
-    strncpy(context->label, spacecraft->Label, sizeof(context->label) - 1);
-    context->label[sizeof(context->label) - 1] = '\0';
+    context->spacecraft_id = (int)spacecraft->ID;
+    context->exists = (int)spacecraft->Exists;
+    /* Use snprintf to avoid strncpy truncation warnings and ensure null-termination */
+    snprintf(context->label, sizeof(context->label), "%s", spacecraft->Label);
     
     // Mark context as valid
     context->valid = 1;
@@ -378,6 +366,15 @@ static void process_42_commands(void)
         struct SCType *spacecraft = &SC[cmd.spacecraft_id];
         
         switch (cmd.type) {
+            case SIMULITH_42_CMD_NONE:
+                // No-op for empty commands
+                break;
+
+            case SIMULITH_42_CMD_SET_MODE:
+                // SET_MODE is not implemented here; ignore or extend as needed
+                if (g_director_config.verbose) printf("SIMULITH_42_CMD_SET_MODE received (not implemented)\n");
+                break;
+
             case SIMULITH_42_CMD_MTB_TORQUE:
                 // Apply MTB command to 42
                 for (int i = 0; i < spacecraft->Nmtb && i < 3; i++) {
@@ -436,6 +433,10 @@ static void process_42_commands(void)
                 }
                 break;
                 
+            case SIMULITH_42_CMD_COUNT:
+                // Marker value - ignore
+                break;
+
             default:
                 printf("Warning: Unknown 42 command type: %d\n", cmd.type);
                 break;
@@ -463,7 +464,7 @@ void on_tick(uint64_t tick_time_ns)
     
     // Execute 42 dynamics simulation step
     if (g_director_config.enable_42 && g_director_config.fortytwo_initialized) {
-        int result = SimStep();
+        int result = (int)SimStep();
         if (result < 0) 
         {
             printf("42 simulation step failed\n");
@@ -478,7 +479,7 @@ void on_tick(uint64_t tick_time_ns)
         // DYN_TIME, POSITION_N_1/2/3, SVB_1/2/3, BVB_1/2/3, HVB_1/2/3, WN_1/2/3, QN_1/2/3/4, MASS, CM_1/2/3, INERTIA_11/12/13/21/22/23/31/32/33, ECLIPSE, ATMO_DENSITY
         unsigned char packet[276]; // Exact size: 34 doubles (8 bytes each) + 1 int (4 bytes) = 276 bytes
         memset(packet, 0, sizeof(packet));
-        int offset = 0;
+        size_t offset = 0;
         // 1. DYN_TIME
         double d_dyn_time = context_42.dyn_time;
         memcpy(packet+offset, &d_dyn_time, sizeof(double)); offset += sizeof(double);
@@ -560,7 +561,7 @@ int main(int argc, char *argv[])
         const char* gsw_hostname = "tryspace-gsw";
         struct hostent* gsw_host = gethostbyname(gsw_hostname);
         if (gsw_host && gsw_host->h_addrtype == AF_INET) {
-            memcpy(&g_udp_addr.sin_addr, gsw_host->h_addr_list[0], gsw_host->h_length);
+            memcpy(&g_udp_addr.sin_addr, gsw_host->h_addr_list[0], (size_t)gsw_host->h_length);
             char ip_str[INET_ADDRSTRLEN];
             inet_ntop(AF_INET, &g_udp_addr.sin_addr, ip_str, sizeof(ip_str));
             printf("UDP telemetry publisher initialized for YAMCS at %s:50042\n", ip_str);

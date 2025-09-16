@@ -17,6 +17,11 @@
 #include <unistd.h>  // For access() function
 
 #include "simulith_component.h"
+
+/* Ensure 42 headers that test _AC_STANDALONE_ see it defined to avoid -Werror=undef */
+#ifndef _AC_STANDALONE_
+#define _AC_STANDALONE_ 1
+#endif
 #include "42.h"
 
 #ifdef __cplusplus

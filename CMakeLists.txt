@@ -13,8 +13,12 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(ZeroMQ REQUIRED libzmq)
 
-# Global compiler flags (applied to all targets)
-if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+# Include optional component flags if available
+set(COMP_FLAGS_FILE "${CMAKE_CURRENT_LIST_DIR}/../comp/CompFlags.cmake")
+if(EXISTS "${COMP_FLAGS_FILE}")
+    message(STATUS "Including component flags from ${COMP_FLAGS_FILE}")
+    include("${COMP_FLAGS_FILE}")
+elseif(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     add_compile_options(-Wall -Werror)
 endif()
 
@@ -102,23 +106,32 @@ target_compile_definitions(fortytwo PRIVATE
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     # Relax warnings for 42 since it's third-party code
     target_compile_options(fortytwo PRIVATE 
-        -Wno-unused-variable 
-        -Wno-unused-function 
-        -Wno-unused-but-set-variable
+        -Wno-array-parameter
+        -Wno-bad-function-cast
+        -Wno-builtin-declaration-mismatch
+        -Wno-conversion
+        -Wno-error
+        -Wno-float-equal
         -Wno-format-zero-length
         -Wno-format-overflow
-        -Wno-array-parameter
+        -Wno-implicit-fallthrough
         -Wno-implicit-function-declaration
-        -Wno-builtin-declaration-mismatch
+        -Wno-maybe-uninitialized
         -Wno-misleading-indentation
-        -Wno-redundant-decls     # Fix atanh redeclaration issue
-        -Wno-strict-prototypes   # Fix prototype warnings
-        -Wno-switch-default      # Relax switch default case warnings
-        -Wno-float-equal         # Relax floating-point equality warnings
-        -Wno-strict-overflow     # Relax strict overflow warnings
-        -Wno-implicit-fallthrough # Relax implicit fallthrough warnings
-        -Wno-sign-compare           # Relax signed/unsigned comparison warnings
-        -Wno-error  # Turn off -Werror for 42
+        -Wno-missing-prototypes
+        -Wno-missing-declarations
+        -Wno-redundant-decls
+        -Wno-strict-prototypes
+        -Wno-sign-compare
+        -Wno-sign-conversion
+        -Wno-strict-aliasing
+        -Wno-strict-overflow
+        -Wno-switch-default
+        -Wno-undef
+        -Wno-unused-but-set-variable
+        -Wno-unused-function
+        -Wno-unused-variable
+        -Wno-unused-result
     )
 endif()
 
