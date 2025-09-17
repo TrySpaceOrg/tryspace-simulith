@@ -1,38 +1,103 @@
 
-/* * Simulith Director
- * This is the main entry point for the Simulith simulation framework
- *  Configuration Management
- *    Read configuration files (likely JSON/YAML for structured data)
- *    Define which component simulators to load
- *    Configure simulation parameters (time step, duration, etc.)
- *    Handle 42 integration settings
- *  Plugin/Component Loading
- *    Dynamic loading of component simulators (shared libraries or static linking)
- *    Initialize/cleanup component interfaces
- *    Manage component lifecycle within single process
- *  Simulith Integration
- *    Connect to Simulith server for time synchronization
- *    Handle time step coordination
- *    Manage simulation state (start/stop/pause)
- *  Data Management
- *    Shared memory or direct memory access between components
- *    Data flow coordination between simulators and 42
- *    State management and logging
+/* Simulith Director
+ * The main entry point for the Simulith simulation framework
+ *
+ * Configuration Management
+ *   Read configuration files (likely JSON/YAML for structured data)
+ *   Define which component simulators to load
+ *   Configure simulation parameters (time step, duration, etc.)
+ *   Handle 42 integration settings
+ * Plugin/Component Loading
+ *   Dynamic loading of component simulators (shared libraries or static linking)
+ *   Initialize/cleanup component interfaces
+ *   Manage component lifecycle within single process
+ * Simulith Integration
+ *   Connect to Simulith server for time synchronization
+ *   Handle time step coordination
+ *   Manage simulation state (start/stop/pause)
+ * Data Management
+ *   Shared memory or direct memory access between components
+ *   Data flow coordination between simulators and 42
+ *   State management and logging
 */
 
-#include "simulith.h"
 #include "simulith_director.h"
-#include "simulith_42_context.h"
-#include "simulith_42_commands.h"
 
-// UDP publisher config
-#define UDP_PUBLISH_INTERVAL_TICKS 10 // Default: publish every 10 ticks (assuming 100ms tick = 1s)
+director_config_t g_director_config;
+
 static int g_udp_sock = -1;
 static struct sockaddr_in g_udp_addr;
 static int g_udp_publish_counter = 0;
+static int g_backdoor_sock = -1;
 
-// Global director config for callback access
-director_config_t g_director_config;
+static int ensure_backdoor_socket(void)
+{
+    if (g_backdoor_sock >= 0) return 0;
+    int s = socket(AF_INET, SOCK_DGRAM, 0);
+    if (s < 0) {
+        perror("backdoor socket");
+        return -1;
+    }
+    int reuse = 1;
+    setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    addr.sin_port = htons(BACKDOOR_PORT);
+    if (bind(s, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+        perror("backdoor bind");
+        close(s);
+        return -1;
+    }
+    // non-blocking
+    int flags = fcntl(s, F_GETFL, 0);
+    if (flags >= 0) fcntl(s, F_SETFL, flags | O_NONBLOCK);
+    g_backdoor_sock = s;
+    printf("Director backdoor listening on udp://0.0.0.0:%d\n", BACKDOOR_PORT);
+    return 0;
+}
+
+static void process_backdoor_once(director_config_t* config)
+{
+    if (ensure_backdoor_socket() != 0) return;
+    uint8_t buf[1500];
+    struct sockaddr_in src;
+    socklen_t slen = sizeof(src);
+    ssize_t n = recvfrom(g_backdoor_sock, buf, sizeof(buf), 0, (struct sockaddr*)&src, &slen);
+    if (n <= 0) return; // nothing to do
+
+    static const uint8_t MAGIC[8] = { 'B','A','C','K','D','O','O','R' };
+    if ((size_t)n < 8 + 1 + 2 + 2) return;
+    if (memcmp(buf, MAGIC, 8) != 0) return;
+    size_t off = 8;
+    uint8_t tlen = buf[off++];
+    if (tlen == 0 || tlen > 64) return;
+    if (off + tlen + 2 + 2 > (size_t)n) return;
+    char target[65];
+    memcpy(target, &buf[off], tlen);
+    target[tlen] = '\0';
+    off += tlen;
+    uint16_t cmd_id = (uint16_t)((buf[off] << 8) | buf[off+1]);
+    off += 2;
+    uint16_t plen = (uint16_t)((buf[off] << 8) | buf[off+1]);
+    off += 2;
+    if (off + plen > (size_t)n) return;
+    const uint8_t* payload = &buf[off];
+
+    // dispatch to component by name
+    for (int i = 0; i < config->component_count; i++) {
+        component_entry_t* ce = &config->components[i];
+        if (!ce->active || !ce->interface) continue;
+        if (!ce->interface->name) continue;
+        if (strcmp(ce->interface->name, target) != 0) continue;
+        if (ce->interface->backdoor) {
+            ce->interface->backdoor(ce->state, cmd_id, payload, plen);
+        }
+        break;
+    }
+}
 
 // Helper to normalize a 3-element vector (C style)
 static void normalize_vec3(double v[3]) {
@@ -451,14 +516,13 @@ void on_tick(uint64_t tick_time_ns)
     populate_42_context(&context_42);
     
     // Run each of the configured simulators with 42 context
-    // (Do this BEFORE 42 step so simulators can queue commands)
     for (int i = 0; i < g_director_config.component_count; i++) {
         component_entry_t* entry = &g_director_config.components[i];
         if (entry->active && entry->interface && entry->interface->tick && entry->state) {
             entry->interface->tick(entry->state, tick_time_ns, &context_42);
         }
     }
-    
+
     // Process any commands from simulators before 42 step
     process_42_commands();
     
@@ -471,7 +535,10 @@ void on_tick(uint64_t tick_time_ns)
         }
     }
 
-    // --- UDP Telemetry Publisher ---
+    // Service backdoor packets
+    process_backdoor_once(&g_director_config);
+
+    // Publish telemetry
     g_udp_publish_counter = (g_udp_publish_counter + 1) % UDP_PUBLISH_INTERVAL_TICKS;
     if (g_udp_sock >= 0 && context_42.valid && g_udp_publish_counter == 0)
     {
