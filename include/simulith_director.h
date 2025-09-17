@@ -5,38 +5,39 @@
 #include <dlfcn.h>
 #include <dirent.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <math.h>
 #include <netdb.h>
 #include <netinet/in.h>
-#include <sys/socket.h>
-#include <sys/stat.h>
-#include <string.h>  // For strcmp() function
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
-#include <unistd.h>  // For access() function
+#include <string.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
+#include "simulith.h"
+#include "simulith_42_context.h"
+#include "simulith_42_commands.h"
 #include "simulith_component.h"
-
-/* Ensure 42 headers that test _AC_STANDALONE_ see it defined to avoid -Werror=undef */
-#ifndef _AC_STANDALONE_
-#define _AC_STANDALONE_ 1
-#endif
 #include "42.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-// Configuration constants
+// Configuration definitions
+#define BACKDOOR_PORT 50060
 #define MAX_COMPONENTS 32
 #define MAX_COMPONENT_LIBS 32
+#define UDP_PUBLISH_INTERVAL_TICKS 10 // Publish every 10 ticks (assuming 100ms tick = 1s)
 
 // Component registry entry
 typedef struct {
     const component_interface_t* interface;
     component_state_t* state;
-    void* lib_handle;  // Handle to the loaded shared library
+    void* lib_handle;
     int active;
 } component_entry_t;
 
@@ -44,15 +45,15 @@ typedef struct {
 typedef struct 
 {
     char config_file[256];
-    char components_dir[256];  // Directory containing component shared libraries
+    char components_dir[256];
     int time_step_ms;
     int duration_s;
     int verbose;
     
     // 42 integration
-    int enable_42;             // Whether to run 42 dynamics simulation
-    char fortytwo_config[256]; // Path to 42 configuration directory
-    int fortytwo_initialized;  // Flag indicating if 42 has been initialized
+    int enable_42;
+    char fortytwo_config[256];
+    int fortytwo_initialized;
     
     // Component management
     component_entry_t components[MAX_COMPONENTS];

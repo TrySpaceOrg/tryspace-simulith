@@ -25,6 +25,7 @@ typedef struct {
     int (*init)(component_state_t** state);
     void (*tick)(component_state_t* state, uint64_t tick_time_ns, const simulith_42_context_t* context_42);
     void (*cleanup)(component_state_t* state);
+    void (*backdoor)(component_state_t* state, uint16_t cmd_id, const uint8_t* payload, uint16_t payload_len);
 } component_interface_t;
 
 // Component registration function type
