@@ -56,6 +56,11 @@ target_include_directories(simulith PUBLIC
 )
 target_link_libraries(simulith PUBLIC ${ZeroMQ_LIBRARIES})
 
+if(BUILD_SIMULITH_TESTS)
+    # When building tests, expose internal symbols for test-only helpers
+    target_compile_definitions(simulith PRIVATE SIMULITH_TESTING)
+endif()
+
 # Build 42 as a library
 set(FORTYTWO_SOURCES
     42/Source/42exec.c

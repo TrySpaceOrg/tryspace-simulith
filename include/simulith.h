@@ -41,6 +41,12 @@ extern "C"
     // Logging function
     void simulith_log(const char *fmt, ...);
 
+#ifdef SIMULITH_TESTING
+    /* Test-only helper to reset logging state between tests. Only available
+     * when building tests (SIMULITH_TESTING). */
+    void simulith_log_reset_for_tests(void);
+#endif
+
     // ---------- Server API ----------
 
     /**

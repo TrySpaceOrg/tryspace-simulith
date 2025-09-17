@@ -38,7 +38,8 @@ build-test:
 	$(MAKE) --no-print-directory -C $(BUILDDIR)
 	cd $(BUILDDIR) && ctest --output-on-failure -O ctest.log
 	lcov -c --directory . --output-file $(BUILDDIR)/coverage.info
-	genhtml $(BUILDDIR)/coverage.info --output-directory $(BUILDDIR)/report
+	lcov --remove $(BUILDDIR)/coverage.info '*/test/*' '*/tests/*' --output-file $(BUILDDIR)/coverage.filtered.info
+	genhtml $(BUILDDIR)/coverage.filtered.info --output-directory $(BUILDDIR)/report
 	@echo ""
 	@echo "Review coverage report: "
 	@echo "  firefox $(BUILDDIR)/report/index.html"
