@@ -20,19 +20,19 @@ void tearDown(void)
     
 }
 
-void on_tick(uint64_t time_ns)
+static void on_tick(uint64_t time_ns)
 {
     ticks_received++;
 }
 
-void *server_thread(void *arg)
+static void *server_thread(void *arg)
 {
     simulith_server_init(LOCAL_PUB_ADDR, LOCAL_REP_ADDR, 1, INTERVAL_NS);
     simulith_server_run(); // runs indefinitely
     return NULL;
 }
 
-void *client_thread(void *arg)
+static void *client_thread(void *arg)
 {
     usleep(1000); // Wait for server to be ready
 
@@ -49,7 +49,7 @@ void *client_thread(void *arg)
     return NULL;
 }
 
-void test_synchronization_tick_exchange(void)
+static void test_synchronization_tick_exchange(void)
 {
     pthread_t server, client;
 
@@ -76,7 +76,7 @@ void test_synchronization_tick_exchange(void)
 }
 
 // Test invalid server initialization
-void test_server_init_invalid_address(void)
+static void test_server_init_invalid_address(void)
 {
     int result = simulith_server_init(INVALID_ADDR, LOCAL_REP_ADDR, 1, INTERVAL_NS);
     TEST_ASSERT_EQUAL_INT(-1, result);
@@ -85,7 +85,7 @@ void test_server_init_invalid_address(void)
     TEST_ASSERT_EQUAL_INT(-1, result);
 }
 
-void test_server_init_invalid_params(void)
+static void test_server_init_invalid_params(void)
 {
     int result = simulith_server_init(LOCAL_PUB_ADDR, LOCAL_REP_ADDR, 0, INTERVAL_NS);
     TEST_ASSERT_EQUAL_INT(-1, result);
@@ -98,7 +98,7 @@ void test_server_init_invalid_params(void)
 }
 
 // Test invalid client initialization
-void test_client_init_invalid_address(void)
+static void test_client_init_invalid_address(void)
 {
     int result = simulith_client_init(INVALID_ADDR, LOCAL_REP_ADDR, CLIENT_ID, INTERVAL_NS);
     TEST_ASSERT_EQUAL_INT(-1, result);
@@ -107,7 +107,7 @@ void test_client_init_invalid_address(void)
     TEST_ASSERT_EQUAL_INT(-1, result);
 }
 
-void test_client_init_invalid_params(void)
+static void test_client_init_invalid_params(void)
 {
     int result = simulith_client_init(LOCAL_PUB_ADDR, LOCAL_REP_ADDR, NULL, INTERVAL_NS);
     TEST_ASSERT_EQUAL_INT(-1, result);
@@ -120,7 +120,7 @@ void test_client_init_invalid_params(void)
 }
 
 // Test handshake without server
-void test_client_handshake_no_server(void)
+static void test_client_handshake_no_server(void)
 {
     simulith_client_init(LOCAL_PUB_ADDR, LOCAL_REP_ADDR, CLIENT_ID, INTERVAL_NS);
     int result = simulith_client_handshake();

@@ -34,9 +34,15 @@ build-sim:
 
 build-test:
 	mkdir -p $(BUILDDIR)
-	cd $(BUILDDIR) && cmake .. -DBUILD_SIMULITH_TESTS=ON
+	cd $(BUILDDIR) && cmake .. -DBUILD_SIMULITH_TESTS=ON -DENABLE_UNIT_TESTS=true
 	$(MAKE) --no-print-directory -C $(BUILDDIR)
 	cd $(BUILDDIR) && ctest --output-on-failure -O ctest.log
+	lcov -c --directory . --output-file $(BUILDDIR)/coverage.info
+	genhtml $(BUILDDIR)/coverage.info --output-directory $(BUILDDIR)/report
+	@echo ""
+	@echo "Review coverage report: "
+	@echo "  firefox $(BUILDDIR)/report/index.html"
+	@echo ""
 
 copy-sims:
 	@if [ ! -d "$(BUILDDIR)" ]; then \

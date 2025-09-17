@@ -2,6 +2,8 @@
 cmake_minimum_required(VERSION 3.25)
 project(Simulith VERSION 0.0 LANGUAGES C)
 
+option(BUILD_SIMULITH_TESTS "Build Simulith tests" OFF)
+
 # Enable compile_commands.json for IDEs and static analysis
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -22,12 +24,14 @@ elseif(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     add_compile_options(-Wall -Werror)
 endif()
 
-# Create Unity library with specific compiler flags and always build with -fPIC
-add_library(unity STATIC unity/unity.c)
-set_target_properties(unity PROPERTIES POSITION_INDEPENDENT_CODE ON)
-target_include_directories(unity PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/unity)
-if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
-    target_compile_options(unity PRIVATE -Wno-float-equal)
+if(BUILD_SIMULITH_TESTS)
+    # Create Unity library with specific compiler flags and always build with -fPIC
+    add_library(unity STATIC ./test/unity/unity.c)
+    set_target_properties(unity PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    target_include_directories(unity PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/unity)
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(unity PRIVATE -Wno-float-equal)
+    endif()
 endif()
 
 # Simulith library sources
@@ -162,9 +166,7 @@ set_target_properties(simulith_server_standalone PROPERTIES
     INSTALL_RPATH "$ORIGIN"
 )
 
-
 # Optionally add tests subdirectory
-option(BUILD_SIMULITH_TESTS "Build Simulith tests" OFF)
 if(BUILD_SIMULITH_TESTS)
     enable_testing()
     add_subdirectory(test)

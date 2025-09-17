@@ -21,7 +21,7 @@ void tearDown(void)
     }
 }
 
-void test_transport_init(void)
+static void test_transport_init(void)
 {
     int result;
 
@@ -66,7 +66,7 @@ void test_transport_init(void)
     TEST_ASSERT_EQUAL(SIMULITH_TRANSPORT_SUCCESS, result);
 }
 
-void test_transport_send_receive(void)
+static void test_transport_send_receive(void)
 {
     int result;
     uint8_t test_data[] = {0xAA, 0xBB, 0xCC};
@@ -114,7 +114,7 @@ void test_transport_send_receive(void)
     TEST_ASSERT_EQUAL(sizeof(test_data), result);
 }
 
-void test_transport_buffer_overflow(void)
+static void test_transport_buffer_overflow(void)
 {
     /* Initialize a pair */
     strcpy(transport_a_ports[2].name, "tp2_a");
@@ -150,7 +150,7 @@ void test_transport_buffer_overflow(void)
     free(bigbuf);
 }
 
-void test_transport_uninitialized_send(void)
+static void test_transport_uninitialized_send(void)
 {
     transport_port_t uninit = {0};
     uint8_t buf[4] = {1,2,3,4};
@@ -158,7 +158,7 @@ void test_transport_uninitialized_send(void)
     TEST_ASSERT_EQUAL(SIMULITH_TRANSPORT_ERROR, rc);
 }
 
-void test_transport_multiple_messages(void)
+static void test_transport_multiple_messages(void)
 {
     /* Initialize a pair */
     strcpy(transport_a_ports[3].name, "tp3_a");
@@ -195,7 +195,7 @@ void test_transport_multiple_messages(void)
     }
 }
 
-void test_transport_partial_receive(void)
+static void test_transport_partial_receive(void)
 {
     /* Initialize a pair */
     strcpy(transport_a_ports[4].name, "tp4_a");
@@ -241,7 +241,7 @@ void test_transport_partial_receive(void)
     free(big);
 }
 
-void test_transport_flush(void)
+static void test_transport_flush(void)
 {
     transport_port_t a = {0};
     strcpy(a.name, "flush_a");
@@ -252,7 +252,7 @@ void test_transport_flush(void)
     simulith_transport_close(&a);
 }
 
-void test_transport_close_uninitialized(void)
+static void test_transport_close_uninitialized(void)
 {
     transport_port_t p = {0};
     int rc = simulith_transport_close(&p);
@@ -266,5 +266,9 @@ int main(void)
     RUN_TEST(test_transport_send_receive);
     RUN_TEST(test_transport_buffer_overflow);
     RUN_TEST(test_transport_uninitialized_send);
+    RUN_TEST(test_transport_multiple_messages);
+    RUN_TEST(test_transport_partial_receive);
+    RUN_TEST(test_transport_flush);
+    RUN_TEST(test_transport_close_uninitialized);
     return UNITY_END();
 }
