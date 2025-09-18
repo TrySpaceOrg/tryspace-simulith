@@ -1,5 +1,6 @@
 #include "simulith.h"
 #include <sched.h>
+#include <signal.h>
 
 #define MAX_CLIENTS 32
 
@@ -17,6 +18,9 @@ static uint64_t    tick_interval_ns           = 0;
 static int         expected_clients           = 0;
 static ClientState client_states[MAX_CLIENTS] = {0};
 
+/* Test/debug helper: request server shutdown from other threads. */
+static volatile sig_atomic_t simulith_server_stop_requested = 0;
+
 static int is_client_id_taken(const char *id)
 {
     for (int i = 0; i < MAX_CLIENTS; ++i)
@@ -32,6 +36,9 @@ static int is_client_id_taken(const char *id)
 
 int simulith_server_init(const char *pub_bind, const char *rep_bind, int client_count, uint64_t interval_ns)
 {
+    /* Clear any previous stop request so a fresh server run isn't short-circuited. */
+    simulith_server_stop_requested = 0;
+
     // Validate parameters
     if (client_count <= 0 || client_count > MAX_CLIENTS)
     {
@@ -75,6 +82,12 @@ int simulith_server_init(const char *pub_bind, const char *rep_bind, int client_
         return -1;
     }
 
+    /* Set a short receive timeout on the responder so the server loop can
+     * periodically check for shutdown requests and avoid getting stuck in a
+     * blocking recv during tests. */
+    int recv_timeout_ms = 200;
+    zmq_setsockopt(responder, ZMQ_RCVTIMEO, &recv_timeout_ms, sizeof(recv_timeout_ms));
+
     // Optimize responder settings
     int rcvhwm = 1000;
     zmq_setsockopt(responder, ZMQ_RCVHWM, &rcvhwm, sizeof(rcvhwm));
@@ -108,9 +121,9 @@ static void broadcast_time(void)
         // Calculate actual speed (sim seconds per real second)
         struct timespec now_ts;
         clock_gettime(CLOCK_MONOTONIC, &now_ts);
-    uint64_t now_real_ns = (uint64_t)now_ts.tv_sec * 1000000000ULL + (uint64_t)now_ts.tv_nsec;
-    double sim_elapsed = (double)(current_time_ns - last_log_time) / 1e9;
-    double real_elapsed = (g_last_log_real_ns > 0) ? ((double)(now_real_ns - g_last_log_real_ns) / 1e9) : 0.0;
+        uint64_t now_real_ns = (uint64_t)now_ts.tv_sec * 1000000000ULL + (uint64_t)now_ts.tv_nsec;
+        double sim_elapsed = (double)(current_time_ns - last_log_time) / 1e9;
+        double real_elapsed = (g_last_log_real_ns > 0) ? ((double)(now_real_ns - g_last_log_real_ns) / 1e9) : 0.0;
         double actual_speed = (real_elapsed > 0.0) ? (sim_elapsed / real_elapsed) : 0.0;
 
         simulith_log("  Simulation time: %.3f seconds | Attempted speed: %.2fx | Actual: %.2fx\n",
@@ -161,6 +174,11 @@ void simulith_server_run(void)
     int ready_clients = 0;
     while (ready_clients < expected_clients)
     {
+        if (simulith_server_stop_requested) {
+            simulith_log("Server shutdown requested while waiting for READY\n");
+            return;
+        }
+
         char buffer[64] = {0};
         int  size       = zmq_recv(responder, buffer, sizeof(buffer) - 1, 0);
         if (size > 0)
@@ -219,6 +237,20 @@ void simulith_server_run(void)
 
             zmq_send(responder, "ACK", 3, 0);
             simulith_log("Registered client %s (%d/%d)\n", client_id, ready_clients, expected_clients);
+        }
+        else
+        {
+            /* recv timed out or failed; check for shutdown and continue waiting */
+            if (errno == EAGAIN)
+            {
+                /* timeout - loop again so we can detect shutdown requests */
+                continue;
+            }
+            else
+            {
+                simulith_log("Error receiving handshake: %s\n", strerror(errno));
+                continue;
+            }
         }
     }
 
@@ -403,6 +435,9 @@ void simulith_server_run(void)
 
 void simulith_server_shutdown(void)
 {
+    /* Request the server loop to stop, then proceed to close sockets. */
+    simulith_server_stop_requested = 1;
+
     if (publisher)
         zmq_close(publisher);
     if (responder)

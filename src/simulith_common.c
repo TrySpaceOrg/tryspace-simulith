@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdarg.h>
 
 typedef enum {
     LOG_MODE_STDOUT,
@@ -10,9 +11,18 @@ typedef enum {
     LOG_MODE_NONE
 } simulith_log_mode_t;
 
+/* When building tests we make these globals non-static so test code can
+ * inspect/reset them. In production builds they remain translation-unit
+ * static to preserve encapsulation. */
+#ifdef SIMULITH_TESTING
+simulith_log_mode_t simulith_log_mode = LOG_MODE_STDOUT;
+int simulith_log_mode_initialized = 0;
+FILE *simulith_log_file = NULL;
+#else
 static simulith_log_mode_t simulith_log_mode = LOG_MODE_STDOUT;
 static int simulith_log_mode_initialized = 0;
 static FILE *simulith_log_file = NULL;
+#endif
 
 static void simulith_log_init_mode(void) {
     const char *env = getenv("SIMULITH_LOG_MODE");
@@ -73,3 +83,18 @@ void simulith_log(const char *fmt, ...)
         va_end(args);
     }
 }
+
+#ifdef SIMULITH_TESTING
+/* Test-only helper: reset logging to uninitialized state and close any open
+ * log file. Tests should call this between cases to avoid cross-test
+ * interference. */
+void simulith_log_reset_for_tests(void)
+{
+    if (simulith_log_file) {
+        fclose(simulith_log_file);
+        simulith_log_file = NULL;
+    }
+    simulith_log_mode_initialized = 0;
+    simulith_log_mode = LOG_MODE_STDOUT;
+}
+#endif

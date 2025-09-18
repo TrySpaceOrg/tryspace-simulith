@@ -2,6 +2,8 @@
 cmake_minimum_required(VERSION 3.25)
 project(Simulith VERSION 0.0 LANGUAGES C)
 
+option(BUILD_SIMULITH_TESTS "Build Simulith tests" OFF)
+
 # Enable compile_commands.json for IDEs and static analysis
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -19,15 +21,31 @@ if(EXISTS "${COMP_FLAGS_FILE}")
     message(STATUS "Including component flags from ${COMP_FLAGS_FILE}")
     include("${COMP_FLAGS_FILE}")
 elseif(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    # Basic fallback flags when component flags aren't available
     add_compile_options(-Wall -Werror)
+    # If building tests, ensure we enable diagnostics and coverage flags
+    if(BUILD_SIMULITH_TESTS)
+        message(STATUS "CompFlags.cmake not found — adding test/coverage flags for GNU/Clang")
+        add_compile_options(-fdiagnostics-show-option -fprofile-arcs -ftest-coverage)
+        # Ensure linker emits coverage data too
+        if(POLICY CMP0068)
+            # add_link_options is available; attach --coverage for linking
+            add_link_options(--coverage)
+        else()
+            set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} --coverage")
+            set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} --coverage")
+        endif()
+    endif()
 endif()
 
-# Create Unity library with specific compiler flags and always build with -fPIC
-add_library(unity STATIC unity/unity.c)
-set_target_properties(unity PROPERTIES POSITION_INDEPENDENT_CODE ON)
-target_include_directories(unity PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/unity)
-if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
-    target_compile_options(unity PRIVATE -Wno-float-equal)
+if(BUILD_SIMULITH_TESTS)
+    # Create Unity library with specific compiler flags and always build with -fPIC
+    add_library(unity STATIC ./test/unity/unity.c)
+    set_target_properties(unity PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    target_include_directories(unity PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/unity)
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(unity PRIVATE -Wno-float-equal)
+    endif()
 endif()
 
 # Simulith library sources
@@ -51,6 +69,11 @@ target_include_directories(simulith PUBLIC
     ${ZeroMQ_INCLUDE_DIRS}
 )
 target_link_libraries(simulith PUBLIC ${ZeroMQ_LIBRARIES})
+
+if(BUILD_SIMULITH_TESTS)
+    # When building tests, expose internal symbols for test-only helpers
+    target_compile_definitions(simulith PRIVATE SIMULITH_TESTING)
+endif()
 
 # Build 42 as a library
 set(FORTYTWO_SOURCES
@@ -162,9 +185,7 @@ set_target_properties(simulith_server_standalone PROPERTIES
     INSTALL_RPATH "$ORIGIN"
 )
 
-
 # Optionally add tests subdirectory
-option(BUILD_SIMULITH_TESTS "Build Simulith tests" OFF)
 if(BUILD_SIMULITH_TESTS)
     enable_testing()
     add_subdirectory(test)

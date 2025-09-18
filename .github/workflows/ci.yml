@@ -36,3 +36,7 @@ jobs:
       - name: Build Test
         run: |
           make build-test
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          verbose: true
