@@ -21,7 +21,21 @@ if(EXISTS "${COMP_FLAGS_FILE}")
     message(STATUS "Including component flags from ${COMP_FLAGS_FILE}")
     include("${COMP_FLAGS_FILE}")
 elseif(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    # Basic fallback flags when component flags aren't available
     add_compile_options(-Wall -Werror)
+    # If building tests, ensure we enable diagnostics and coverage flags
+    if(BUILD_SIMULITH_TESTS)
+        message(STATUS "CompFlags.cmake not found — adding test/coverage flags for GNU/Clang")
+        add_compile_options(-fdiagnostics-show-option -fprofile-arcs -ftest-coverage)
+        # Ensure linker emits coverage data too
+        if(POLICY CMP0068)
+            # add_link_options is available; attach --coverage for linking
+            add_link_options(--coverage)
+        else()
+            set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} --coverage")
+            set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} --coverage")
+        endif()
+    endif()
 endif()
 
 if(BUILD_SIMULITH_TESTS)
