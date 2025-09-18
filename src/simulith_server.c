@@ -121,9 +121,9 @@ static void broadcast_time(void)
         // Calculate actual speed (sim seconds per real second)
         struct timespec now_ts;
         clock_gettime(CLOCK_MONOTONIC, &now_ts);
-    uint64_t now_real_ns = (uint64_t)now_ts.tv_sec * 1000000000ULL + (uint64_t)now_ts.tv_nsec;
-    double sim_elapsed = (double)(current_time_ns - last_log_time) / 1e9;
-    double real_elapsed = (g_last_log_real_ns > 0) ? ((double)(now_real_ns - g_last_log_real_ns) / 1e9) : 0.0;
+        uint64_t now_real_ns = (uint64_t)now_ts.tv_sec * 1000000000ULL + (uint64_t)now_ts.tv_nsec;
+        double sim_elapsed = (double)(current_time_ns - last_log_time) / 1e9;
+        double real_elapsed = (g_last_log_real_ns > 0) ? ((double)(now_real_ns - g_last_log_real_ns) / 1e9) : 0.0;
         double actual_speed = (real_elapsed > 0.0) ? (sim_elapsed / real_elapsed) : 0.0;
 
         simulith_log("  Simulation time: %.3f seconds | Attempted speed: %.2fx | Actual: %.2fx\n",

@@ -44,7 +44,6 @@ static void *server_thread_with_clients(void *arg)
     {
         int *p = (int *)arg;
         expected = *p;
-        free(p);
     }
 
     simulith_server_init(LOCAL_PUB_ADDR, LOCAL_REP_ADDR, expected, INTERVAL_NS);
@@ -177,7 +176,8 @@ static void test_client_handshake_no_server(void)
 static void test_client_wait_for_tick(void)
 {
     pthread_t server;
-    int *p = malloc(sizeof(int)); *p = 1;
+    int i = 1;
+    int *p = &i; 
     pthread_create(&server, NULL, server_thread_with_clients, p);
     usleep(10000); // give server time to bind and start
 
@@ -202,7 +202,8 @@ static void test_client_wait_for_tick(void)
 static void test_server_handshake_invalid_format(void)
 {
     pthread_t server;
-    int *p = malloc(sizeof(int)); *p = 1;
+    int i = 1;
+    int *p = &i; 
     pthread_create(&server, NULL, server_thread_with_clients, p);
     usleep(10000);
 
@@ -220,7 +221,8 @@ static void test_server_handshake_invalid_format(void)
 static void test_server_handshake_duplicate_client_id(void)
 {
     pthread_t server;
-    int *p = malloc(sizeof(int)); *p = 2; // expect two clients
+    int i = 2; // two clients expected
+    int *p = &i; 
     pthread_create(&server, NULL, server_thread_with_clients, p);
     usleep(10000);
 
@@ -248,7 +250,8 @@ static void test_server_handshake_duplicate_client_id(void)
 static void test_server_ack_handling(void)
 {
     pthread_t server;
-    int *p = malloc(sizeof(int)); *p = 1;
+    int i = 1;
+    int *p = &i; 
     pthread_create(&server, NULL, server_thread_with_clients, p);
     usleep(10000);
 
@@ -310,7 +313,8 @@ static void test_server_standalone_invalid_arg(void)
 static void test_server_handle_unknown_client_ack(void)
 {
     pthread_t server;
-    int *p = malloc(sizeof(int)); *p = 1;
+    int i = 1;
+    int *p = &i; 
     // Log to file so we can inspect the message
     setenv("SIMULITH_LOG_MODE", "file", 1);
     simulith_log_reset_for_tests();
