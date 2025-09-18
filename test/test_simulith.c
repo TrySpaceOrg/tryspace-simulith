@@ -173,6 +173,31 @@ static void test_client_handshake_no_server(void)
     simulith_client_shutdown();
 }
 
+// Test blocking wait-for-tick API: server should send a tick and client should receive it
+static void test_client_wait_for_tick(void)
+{
+    pthread_t server;
+    int *p = malloc(sizeof(int)); *p = 1;
+    pthread_create(&server, NULL, server_thread_with_clients, p);
+    usleep(10000); // give server time to bind and start
+
+    int rc = simulith_client_init(LOCAL_PUB_ADDR, LOCAL_REP_ADDR, CLIENT_ID, INTERVAL_NS);
+    TEST_ASSERT_EQUAL_INT(0, rc);
+
+    rc = simulith_client_handshake();
+    TEST_ASSERT_EQUAL_INT(0, rc);
+
+    uint64_t tick_ns = 0;
+    rc = simulith_client_wait_for_tick(&tick_ns);
+    TEST_ASSERT_EQUAL_INT(0, rc);
+    TEST_ASSERT_GREATER_THAN(0, tick_ns);
+
+    simulith_client_shutdown();
+    simulith_server_shutdown();
+    pthread_cancel(server);
+    pthread_join(server, NULL);
+}
+
 // Server should reply ERR to malformed handshake messages
 static void test_server_handshake_invalid_format(void)
 {
@@ -281,6 +306,47 @@ static void test_server_standalone_invalid_arg(void)
     TEST_ASSERT_NOT_EQUAL(0, exit_code);
 }
 
+// Sending an ACK with an unknown client id should log an "ACK received from unknown client" message
+static void test_server_handle_unknown_client_ack(void)
+{
+    pthread_t server;
+    int *p = malloc(sizeof(int)); *p = 1;
+    // Log to file so we can inspect the message
+    setenv("SIMULITH_LOG_MODE", "file", 1);
+    simulith_log_reset_for_tests();
+    pthread_create(&server, NULL, server_thread_with_clients, p);
+    usleep(10000);
+
+    char reply[128] = {0};
+    int rc = zmq_req_send_and_recv(LOCAL_REP_ADDR, "READY KNOWN", reply, sizeof(reply));
+    TEST_ASSERT_EQUAL_INT(0, rc);
+    TEST_ASSERT_EQUAL_STRING("ACK", reply);
+
+    usleep(20000);
+
+    rc = zmq_req_send_and_recv(LOCAL_REP_ADDR, "UNKNOWN123", reply, sizeof(reply));
+    TEST_ASSERT_EQUAL_INT(0, rc);
+    TEST_ASSERT_EQUAL_STRING("ACK", reply);
+
+    // Give logger a moment to flush to file
+    usleep(10000);
+
+    FILE *f = fopen("/tmp/simulith.log", "r");
+    TEST_ASSERT_NOT_NULL(f);
+    char buf[256];
+    int found = 0;
+    while (fgets(buf, sizeof(buf), f)) {
+        if (strstr(buf, "ACK received from unknown client: UNKNOWN123")) { found = 1; break; }
+    }
+    fclose(f);
+    TEST_ASSERT_TRUE(found);
+
+    simulith_server_shutdown();
+    pthread_cancel(server);
+    pthread_join(server, NULL);
+    unsetenv("SIMULITH_LOG_MODE");
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -291,15 +357,14 @@ int main(void)
     RUN_TEST(test_client_init_invalid_address);
     RUN_TEST(test_client_init_invalid_params);
     RUN_TEST(test_client_handshake_no_server);
+    RUN_TEST(test_client_wait_for_tick);
 
     RUN_TEST(test_server_handshake_invalid_format);
     RUN_TEST(test_server_handshake_duplicate_client_id);
     RUN_TEST(test_server_ack_handling);
-
     RUN_TEST(test_server_cli_commands);
     RUN_TEST(test_server_standalone_invalid_arg);
-
-    // TODO: test_duplicate_client_ids
+    RUN_TEST(test_server_handle_unknown_client_ack);
 
     return UNITY_END();
 }
