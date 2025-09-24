@@ -6,9 +6,10 @@ export TOPDIR ?= $(CURDIR)/..
 
 export BUILD_IMAGE ?= tryspaceorg/tryspace-lab:0.0.1
 export CONTAINER_NAME ?= tryspace-lab
-export RUNTIME_DIRECTOR_NAME ?= tryspace-director
-export RUNTIME_SERVER_NAME ?= tryspace-server
+export RUNTIME_DIRECTOR_NAME ?= tryspace-director-$(MISSION)
+export RUNTIME_SERVER_NAME ?= tryspace-server-$(MISSION)
 export SPACECRAFT ?= latest
+export MISSION ?= default
 
 # Determine number of parallel jobs to avoid maxing out low-power systems (Raspberry Pi etc.).
 # Use `nproc - 1` but ensure at least 1 job.
