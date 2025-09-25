@@ -56,7 +56,8 @@ double simulith_time_get(void* handle)
     if (!handle) return 0.0;
     
     simulith_time_provider_t* provider = (simulith_time_provider_t*)handle;
-    return provider->tick_count * provider->tick_interval;
+    /* Promote tick_count to double before multiplication to avoid integer->double conversion warnings */
+    return (double)provider->tick_count * provider->tick_interval;
 }
 
 int simulith_time_wait_for_next_tick(void* handle) 

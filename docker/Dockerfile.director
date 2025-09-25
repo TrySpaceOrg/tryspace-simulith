@@ -1,6 +1,7 @@
-FROM tryspaceorg/tryspace-lab:0.0.0
+FROM tryspaceorg/tryspace-lab:1.0.0
 
-# Copy built simulith director and components
+# Copy built simulith, director, and components
+COPY ./build/libsimulith.so /app/libsimulith.so
 COPY ./build/simulith_director_standalone /app/simulith_director_standalone
 COPY ./build/components /app/components
 COPY ./build/InOut /app/InOut

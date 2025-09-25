@@ -1,46 +1,113 @@
-/* * Simulith Director
- * This is the main entry point for the Simulith simulation framework
- *  Configuration Management
- *    Read configuration files (likely JSON/YAML for structured data)
- *    Define which component simulators to load
- *    Configure simulation parameters (time step, duration, etc.)
- *    Handle 42 integration settings
- *  Plugin/Component Loading
- *    Dynamic loading of component simulators (shared libraries or static linking)
- *    Initialize/cleanup component interfaces
- *    Manage component lifecycle within single process
- *  Simulith Integration
- *    Connect to Simulith server for time synchronization
- *    Handle time step coordination
- *    Manage simulation state (start/stop/pause)
- *  Data Management
- *    Shared memory or direct memory access between components
- *    Data flow coordination between simulators and 42
- *    State management and logging
+
+/* Simulith Director
+ * The main entry point for the Simulith simulation framework
+ *
+ * Configuration Management
+ *   Read configuration files (likely JSON/YAML for structured data)
+ *   Define which component simulators to load
+ *   Configure simulation parameters (time step, duration, etc.)
+ *   Handle 42 integration settings
+ * Plugin/Component Loading
+ *   Dynamic loading of component simulators (shared libraries or static linking)
+ *   Initialize/cleanup component interfaces
+ *   Manage component lifecycle within single process
+ * Simulith Integration
+ *   Connect to Simulith server for time synchronization
+ *   Handle time step coordination
+ *   Manage simulation state (start/stop/pause)
+ * Data Management
+ *   Shared memory or direct memory access between components
+ *   Data flow coordination between simulators and 42
+ *   State management and logging
 */
 
-#include "simulith.h"
 #include "simulith_director.h"
-#include "simulith_42_context.h"
-#include "simulith_42_commands.h"
-#include <errno.h>
-#include <unistd.h>  // For access() function
-#include <string.h>  // For strcmp() function
 
-// Include 42 headers for accessing spacecraft data
-#ifdef __cplusplus
-extern "C" {
-#endif
-#include "42.h"
-#ifdef __cplusplus
-}
-#endif
-
-// Global director config for callback access
 director_config_t g_director_config;
 
-// Global command queue for 42 commands
-static simulith_42_cmd_queue_t g_command_queue = {0};
+static int g_udp_sock = -1;
+static struct sockaddr_in g_udp_addr;
+static int g_udp_publish_counter = 0;
+static int g_backdoor_sock = -1;
+
+static int ensure_backdoor_socket(void)
+{
+    if (g_backdoor_sock >= 0) return 0;
+    int s = socket(AF_INET, SOCK_DGRAM, 0);
+    if (s < 0) {
+        perror("backdoor socket");
+        return -1;
+    }
+    int reuse = 1;
+    setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    addr.sin_port = htons(BACKDOOR_PORT);
+    if (bind(s, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+        perror("backdoor bind");
+        close(s);
+        return -1;
+    }
+    // non-blocking
+    int flags = fcntl(s, F_GETFL, 0);
+    if (flags >= 0) fcntl(s, F_SETFL, flags | O_NONBLOCK);
+    g_backdoor_sock = s;
+    printf("Director backdoor listening on udp://0.0.0.0:%d\n", BACKDOOR_PORT);
+    return 0;
+}
+
+static void process_backdoor_once(director_config_t* config)
+{
+    if (ensure_backdoor_socket() != 0) return;
+    uint8_t buf[1500];
+    struct sockaddr_in src;
+    socklen_t slen = sizeof(src);
+    ssize_t n = recvfrom(g_backdoor_sock, buf, sizeof(buf), 0, (struct sockaddr*)&src, &slen);
+    if (n <= 0) return; // nothing to do
+
+    static const uint8_t MAGIC[8] = { 'B','A','C','K','D','O','O','R' };
+    if ((size_t)n < 8 + 1 + 2 + 2) return;
+    if (memcmp(buf, MAGIC, 8) != 0) return;
+    size_t off = 8;
+    uint8_t tlen = buf[off++];
+    if (tlen == 0 || tlen > 64) return;
+    if (off + tlen + 2 + 2 > (size_t)n) return;
+    char target[65];
+    memcpy(target, &buf[off], tlen);
+    target[tlen] = '\0';
+    off += tlen;
+    uint16_t cmd_id = (uint16_t)((buf[off] << 8) | buf[off+1]);
+    off += 2;
+    uint16_t plen = (uint16_t)((buf[off] << 8) | buf[off+1]);
+    off += 2;
+    if (off + plen > (size_t)n) return;
+    const uint8_t* payload = &buf[off];
+
+    // dispatch to component by name
+    for (int i = 0; i < config->component_count; i++) {
+        component_entry_t* ce = &config->components[i];
+        if (!ce->active || !ce->interface) continue;
+        if (!ce->interface->name) continue;
+        if (strcmp(ce->interface->name, target) != 0) continue;
+        if (ce->interface->backdoor) {
+            ce->interface->backdoor(ce->state, cmd_id, payload, plen);
+        }
+        break;
+    }
+}
+
+// Helper to normalize a 3-element vector (C style)
+static void normalize_vec3(double v[3]) {
+    double mag = sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]);
+    if (mag > 1e-12) {
+        v[0] /= mag;
+        v[1] /= mag;
+        v[2] /= mag;
+    }
+}
 
 int parse_args(int argc, char *argv[], director_config_t *config) 
 {
@@ -74,20 +141,6 @@ int parse_args(int argc, char *argv[], director_config_t *config)
         }
     }
     
-    return 0;
-}
-
-int load_configuration(const char *config_file) 
-{
-    printf("Loading configuration from: %s\n", config_file);
-    // TODO: Load and parse configuration file
-    return 0;
-}
-
-int initialize_simulith_connection() 
-{
-    printf("Initializing Simulith connection...\n");
-    // TODO: Connect to Simulith server
     return 0;
 }
 
@@ -137,15 +190,12 @@ int load_components(director_config_t* config)
             config->lib_handles[config->lib_count++] = lib_handle;
         }
         
-        // Get the component interface function
-        typedef const component_interface_t* (*get_component_interface_fn)(void);
-        
         // Use union to safely convert between object and function pointers
         union {
             void* obj;
             get_component_interface_fn func;
         } symbol_cast;
-        
+
         symbol_cast.obj = dlsym(lib_handle, "get_component_interface");
         get_component_interface_fn get_interface = symbol_cast.func;
         
@@ -266,7 +316,7 @@ void cleanup_components(director_config_t* config)
     config->lib_count = 0;
 }
 
-void populate_42_context(simulith_42_context_t* context)
+static void populate_42_context(simulith_42_context_t* context)
 {
     // Initialize context
     memset(context, 0, sizeof(simulith_42_context_t));
@@ -312,13 +362,22 @@ void populate_42_context(simulith_42_context_t* context)
         context->vel_r[i] = spacecraft->VelR[i];
     }
     
-    // Copy environmental vectors
+    // Copy and normalize environmental vectors
     for (int i = 0; i < 3; i++) {
         context->sun_vector_body[i] = spacecraft->svb[i];
         context->mag_field_body[i] = spacecraft->bvb[i];
         context->sun_vector_inertial[i] = spacecraft->svn[i];
         context->mag_field_inertial[i] = spacecraft->bvn[i];
     }
+    // Ensure hvb is zero-initialized if 42 didn't populate it
+    for (int i = 0; i < 3; i++) {
+        context->hvb[i] = 0.0;
+    }
+    // Normalize all vectors that should be unit vectors
+    normalize_vec3(context->sun_vector_body);
+    normalize_vec3(context->sun_vector_inertial);
+    normalize_vec3(context->mag_field_body);
+    normalize_vec3(context->mag_field_inertial);
     
     // Copy spacecraft properties
     context->mass = spacecraft->mass;
@@ -329,91 +388,18 @@ void populate_42_context(simulith_42_context_t* context)
         }
     }
     
-    // Environmental conditions
-    context->eclipse = spacecraft->Eclipse;
+    // Environmental conditions (cast from 42's long types to our ints)
+    context->eclipse = (int)spacecraft->Eclipse;
     context->atmo_density = spacecraft->AtmoDensity;
-    
+
     // Spacecraft identification
-    context->spacecraft_id = spacecraft->ID;
-    context->exists = spacecraft->Exists;
-    strncpy(context->label, spacecraft->Label, sizeof(context->label) - 1);
-    context->label[sizeof(context->label) - 1] = '\0';
+    context->spacecraft_id = (int)spacecraft->ID;
+    context->exists = (int)spacecraft->Exists;
+    /* Use snprintf to avoid strncpy truncation warnings and ensure null-termination */
+    snprintf(context->label, sizeof(context->label), "%s", spacecraft->Label);
     
     // Mark context as valid
     context->valid = 1;
-}
-
-// Command Queue Functions
-static int enqueue_command(const simulith_42_command_t* cmd)
-{
-    if (g_command_queue.count >= SIMULITH_42_CMD_QUEUE_SIZE) {
-        printf("Warning: 42 command queue full, dropping command\n");
-        return -1;
-    }
-    
-    g_command_queue.commands[g_command_queue.head] = *cmd;
-    g_command_queue.head = (g_command_queue.head + 1) % SIMULITH_42_CMD_QUEUE_SIZE;
-    g_command_queue.count++;
-    return 0;
-}
-
-static int dequeue_command(simulith_42_command_t* cmd)
-{
-    if (g_command_queue.count == 0) {
-        return -1; // Queue empty
-    }
-    
-    *cmd = g_command_queue.commands[g_command_queue.tail];
-    g_command_queue.tail = (g_command_queue.tail + 1) % SIMULITH_42_CMD_QUEUE_SIZE;
-    g_command_queue.count--;
-    return 0;
-}
-
-// Command Interface Functions (called by simulators)
-int simulith_42_send_mtb_command(int spacecraft_id, const double dipole[3], int enable_mask)
-{
-    simulith_42_command_t cmd = {0};
-    cmd.type = SIMULITH_42_CMD_MTB_TORQUE;
-    cmd.spacecraft_id = spacecraft_id;
-    cmd.valid = 1;
-    
-    for (int i = 0; i < 3; i++) {
-        cmd.cmd.mtb.dipole[i] = dipole[i];
-    }
-    cmd.cmd.mtb.enable_mask = enable_mask;
-    
-    return enqueue_command(&cmd);
-}
-
-int simulith_42_send_wheel_command(int spacecraft_id, const double torque[4], int enable_mask)
-{
-    simulith_42_command_t cmd = {0};
-    cmd.type = SIMULITH_42_CMD_WHEEL_TORQUE;
-    cmd.spacecraft_id = spacecraft_id;
-    cmd.valid = 1;
-    
-    for (int i = 0; i < 4; i++) {
-        cmd.cmd.wheel.torque[i] = torque[i];
-    }
-    cmd.cmd.wheel.enable_mask = enable_mask;
-    
-    return enqueue_command(&cmd);
-}
-
-int simulith_42_send_thruster_command(int spacecraft_id, const double thrust[3], const double torque[3], int enable_mask)
-{
-    simulith_42_command_t cmd = {0};
-    cmd.type = SIMULITH_42_CMD_THRUSTER;
-    cmd.spacecraft_id = spacecraft_id;
-    cmd.valid = 1;
-    
-    for (int i = 0; i < 3; i++) {
-        cmd.cmd.thruster.thrust[i] = thrust[i];
-        cmd.cmd.thruster.torque[i] = torque[i];
-    }
-    cmd.cmd.thruster.enable_mask = enable_mask;
-    
-    return enqueue_command(&cmd);
 }
 
 // Process commands and apply them to 42
@@ -424,18 +410,36 @@ static void process_42_commands(void)
     extern struct SCType *SC;
     
     if (!g_director_config.enable_42 || !g_director_config.fortytwo_initialized || !SC) {
+        printf("simulith: process_42_commands skipped (enable_42=%d fortytwo_initialized=%d SC=%p)\n",
+               g_director_config.enable_42, g_director_config.fortytwo_initialized, (void*)SC);
         return;
     }
     
     // Process all queued commands
+    //printf("simulith: processing queued commands (Nsc=%ld SC0.Exists=%ld)\n", Nsc, SC[0].Exists);
     while (dequeue_command(&cmd) == 0) {
         if (!cmd.valid || cmd.spacecraft_id >= Nsc || !SC[cmd.spacecraft_id].Exists) {
+            if (g_director_config.verbose) {
+                printf("simulith: dequeued invalid/ignored command: type=%d sc=%d valid=%d\n", cmd.type, cmd.spacecraft_id, cmd.valid);
+            }
             continue;
+        }
+        if (g_director_config.verbose) {
+            printf("simulith: dequeued command: type=%d sc=%d\n", cmd.type, cmd.spacecraft_id);
         }
         
         struct SCType *spacecraft = &SC[cmd.spacecraft_id];
         
         switch (cmd.type) {
+            case SIMULITH_42_CMD_NONE:
+                // No-op for empty commands
+                break;
+
+            case SIMULITH_42_CMD_SET_MODE:
+                // SET_MODE is not implemented here; ignore or extend as needed
+                if (g_director_config.verbose) printf("SIMULITH_42_CMD_SET_MODE received (not implemented)\n");
+                break;
+
             case SIMULITH_42_CMD_MTB_TORQUE:
                 // Apply MTB command to 42
                 for (int i = 0; i < spacecraft->Nmtb && i < 3; i++) {
@@ -494,6 +498,10 @@ static void process_42_commands(void)
                 }
                 break;
                 
+            case SIMULITH_42_CMD_COUNT:
+                // Marker value - ignore
+                break;
+
             default:
                 printf("Warning: Unknown 42 command type: %d\n", cmd.type);
                 break;
@@ -508,24 +516,67 @@ void on_tick(uint64_t tick_time_ns)
     populate_42_context(&context_42);
     
     // Run each of the configured simulators with 42 context
-    // (Do this BEFORE 42 step so simulators can queue commands)
     for (int i = 0; i < g_director_config.component_count; i++) {
         component_entry_t* entry = &g_director_config.components[i];
         if (entry->active && entry->interface && entry->interface->tick && entry->state) {
             entry->interface->tick(entry->state, tick_time_ns, &context_42);
         }
     }
-    
+
     // Process any commands from simulators before 42 step
     process_42_commands();
     
     // Execute 42 dynamics simulation step
     if (g_director_config.enable_42 && g_director_config.fortytwo_initialized) {
-        int result = SimStep();
+        int result = (int)SimStep();
         if (result < 0) 
         {
             printf("42 simulation step failed\n");
         }
+    }
+
+    // Service backdoor packets
+    process_backdoor_once(&g_director_config);
+
+    // Publish telemetry
+    g_udp_publish_counter = (g_udp_publish_counter + 1) % UDP_PUBLISH_INTERVAL_TICKS;
+    if (g_udp_sock >= 0 && context_42.valid && g_udp_publish_counter == 0)
+    {
+        // Packet structure matches XTCE SIM_42_TRUTH_DATA:
+        // DYN_TIME, POSITION_N_1/2/3, SVB_1/2/3, BVB_1/2/3, HVB_1/2/3, WN_1/2/3, QN_1/2/3/4, MASS, CM_1/2/3, INERTIA_11/12/13/21/22/23/31/32/33, ECLIPSE, ATMO_DENSITY
+        unsigned char packet[276]; // Exact size: 34 doubles (8 bytes each) + 1 int (4 bytes) = 276 bytes
+        memset(packet, 0, sizeof(packet));
+        size_t offset = 0;
+        // 1. DYN_TIME
+        double d_dyn_time = context_42.dyn_time;
+        memcpy(packet+offset, &d_dyn_time, sizeof(double)); offset += sizeof(double);
+        // 2-4. POSITION_N_1/2/3
+        for (int i = 0; i < 3; i++) { double d = context_42.pos_n[i]; memcpy(packet+offset, &d, sizeof(double)); offset += sizeof(double); }
+        // 5-7. SVB_1/2/3
+        for (int i = 0; i < 3; i++) { double d = context_42.sun_vector_body[i]; memcpy(packet+offset, &d, sizeof(double)); offset += sizeof(double); }
+        // 8-10. BVB_1/2/3
+        for (int i = 0; i < 3; i++) { double d = context_42.mag_field_body[i]; memcpy(packet+offset, &d, sizeof(double)); offset += sizeof(double); }
+        // 11-13. HVB_1/2/3
+        for (int i = 0; i < 3; i++) { double d = context_42.hvb[i]; memcpy(packet+offset, &d, sizeof(double)); offset += sizeof(double); }
+        // 14-16. WN_1/2/3
+        for (int i = 0; i < 3; i++) { double d = context_42.wn[i]; memcpy(packet+offset, &d, sizeof(double)); offset += sizeof(double); }
+        // 17-20. QN_1/2/3/4
+        for (int i = 0; i < 4; i++) { double d = context_42.qn[i]; memcpy(packet+offset, &d, sizeof(double)); offset += sizeof(double); }
+        // 21. MASS
+        double d_mass = context_42.mass;
+        memcpy(packet+offset, &d_mass, sizeof(double)); offset += sizeof(double);
+        // 22-24. CM_1/2/3
+        for (int i = 0; i < 3; i++) { double d = context_42.cm[i]; memcpy(packet+offset, &d, sizeof(double)); offset += sizeof(double); }
+        // 25-33. INERTIA_11/12/13/21/22/23/31/32/33
+        for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++) { double d = context_42.inertia[i][j]; memcpy(packet+offset, &d, sizeof(double)); offset += sizeof(double); }
+        // 34. ECLIPSE (int)
+        int ecl = context_42.eclipse;
+        memcpy(packet+offset, &ecl, sizeof(int)); offset += sizeof(int);
+        // 35. ATMO_DENSITY
+        double d_atmo_density = context_42.atmo_density;
+        memcpy(packet+offset, &d_atmo_density, sizeof(double)); offset += sizeof(double);
+        // Send exactly 276 bytes
+        sendto(g_udp_sock, packet, 276, 0, (struct sockaddr*)&g_udp_addr, sizeof(g_udp_addr));
     }
 }
 
@@ -538,11 +589,6 @@ int main(int argc, char *argv[])
         return 0;  // Help was shown or parsing failed
     } else if (parse_result > 0) {
         fprintf(stderr, "Failed to parse arguments\n");
-        return 1;
-    }
-    
-    if (load_configuration(g_director_config.config_file) != 0) {
-        fprintf(stderr, "Failed to load configuration\n");
         return 1;
     }
 
@@ -564,6 +610,32 @@ int main(int argc, char *argv[])
         fprintf(stderr, "Warning: 42 simulation initialization had issues, continuing without it\n");
         g_director_config.enable_42 = 0;
         g_director_config.fortytwo_initialized = 0;
+    }
+
+    // UDP Telemetry Socket Init
+    g_udp_sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (g_udp_sock < 0) 
+    {
+        perror("UDP socket creation failed");
+    } 
+    else 
+    {
+        memset(&g_udp_addr, 0, sizeof(g_udp_addr));
+        g_udp_addr.sin_family = AF_INET;
+        g_udp_addr.sin_port = htons(50042); // Default port for 42 telemetry
+
+        // Resolve tryspace-gsw hostname
+        const char* gsw_hostname = "tryspace-gsw";
+        struct hostent* gsw_host = gethostbyname(gsw_hostname);
+        if (gsw_host && gsw_host->h_addrtype == AF_INET) {
+            memcpy(&g_udp_addr.sin_addr, gsw_host->h_addr_list[0], (size_t)gsw_host->h_length);
+            char ip_str[INET_ADDRSTRLEN];
+            inet_ntop(AF_INET, &g_udp_addr.sin_addr, ip_str, sizeof(ip_str));
+            printf("UDP telemetry publisher initialized for YAMCS at %s:50042\n", ip_str);
+        } else {
+            printf("Warning: Could not resolve hostname '%s', defaulting to 127.0.0.1\n", gsw_hostname);
+            g_udp_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+        }
     }
 
     // Wait a second for the Simulith server to start up
